@@ -71,10 +71,16 @@ All config via environment variables. No config files, no flags (except what Doc
 |---|---|---|
 | `PORT` | No | `8080` |
 | `WEBHOOK_SECRET` | Yes | — |
-| `ANTHROPIC_API_KEY` | Yes | — |
+| `ANTHROPIC_AUTH_TOKEN` | Yes | — |
 | `GITHUB_PAT` | Yes | — |
 | `CLAUDE_CODE_PATH` | No | auto-detected |
 | `MAX_TURNS` | No | `30` |
+| `ANTHROPIC_BASE_URL` | No | — |
+| `API_TIMEOUT_MS` | No | — |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | No | — |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No | — |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | No | — |
+| `CLAUDE_CODE_DISABLE_1M_CONTEXT` | No | — |
 
 ### Docker
 

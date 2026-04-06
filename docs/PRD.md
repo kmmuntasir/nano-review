@@ -273,17 +273,23 @@ CMD ["nano-review"]
 |---|---|---|
 | `PORT` | No | Server port (default: `8080`). |
 | `WEBHOOK_SECRET` | Yes | Shared secret for webhook authentication. |
-| `ANTHROPIC_API_KEY` | Yes | API key for Claude Code CLI authentication. |
+| `ANTHROPIC_AUTH_TOKEN` | Yes | Auth token for Claude Code CLI. |
 | `GITHUB_PAT` | Yes | GitHub Personal Access Token for the MCP server. |
 | `CLAUDE_CODE_PATH` | No | Override path to `claude` binary (default: auto-detected). |
 | `MAX_TURNS` | No | Max agentic turns for Claude Code (default: `30`). |
+| `ANTHROPIC_BASE_URL` | No | Custom API endpoint (e.g., Z.AI proxy). |
+| `API_TIMEOUT_MS` | No | API timeout in milliseconds. |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | No | Override haiku model name. |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | No | Override sonnet model name. |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | No | Override opus model name. |
+| `CLAUDE_CODE_DISABLE_1M_CONTEXT` | No | Disable 1M context window. |
 
 ### `.env.example`
 
 ```
 PORT=8080
 WEBHOOK_SECRET=your-webhook-secret-here
-ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_AUTH_TOKEN=your-auth-token
 GITHUB_PAT=ghp_...
 MAX_TURNS=30
 ```
@@ -319,7 +325,7 @@ Core review logic:
 ## 12. Security Considerations
 
 - **Webhook authentication**: Every request must include a valid `X-Webhook-Secret` header matching the server's configured secret.
-- **No secrets in code**: All secrets (`ANTHROPIC_API_KEY`, `GITHUB_PAT`, `WEBHOOK_SECRET`) are injected via environment variables.
+- **No secrets in code**: All secrets (`ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`, `WEBHOOK_SECRET`) are injected via environment variables.
 - **Ephemeral execution**: Each review runs in a fresh `/tmp/<run-id>` directory that is forcefully deleted after completion.
 - **SSH key scoping**: The server's SSH key should be scoped to only the target repository (deploy key with read-only access).
 - **GitHub PAT scoping**: The `GITHUB_PAT` should have minimal permissions (`repo` scope for PR read/write comments).
