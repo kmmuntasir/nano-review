@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/kmmuntasir/nano-review/internal/api"
@@ -28,15 +31,17 @@ type Worker struct {
 	logger     Logger
 	gitPath    string
 	claudePath string
+	model      string
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
-func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath string) *Worker {
+func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model string) *Worker {
 	return &Worker{
 		claude:     claude,
 		logger:     logger,
 		gitPath:    gitPath,
 		claudePath: claudePath,
+		model:      model,
 	}
 }
 
@@ -72,14 +77,39 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	logger.Info("git clone completed")
 
 	logger.Info("claude execution started")
-	prompt := fmt.Sprintf("/pr-review %d --base %s --head %s", p.PRNumber, p.BaseBranch, p.HeadBranch)
-	output, exitCode, err := w.claude.Run(ctx, dir, w.claudePath, "-p", prompt, "--dangerously-skip-permissions")
+
+	owner, repo := parseRepoURL(p.RepoURL)
+	prompt := fmt.Sprintf(
+		"Review pull request #%d in %s/%s (base: %s, head: %s). "+
+			"You MUST use the GitHub MCP server tools to perform and submit this review. "+
+			"Step 1: Call mcp__github__pull_request_read with method 'get_diff', owner '%s', repo '%s', pullNumber %d. "+
+			"Step 2: Analyze the diff for correctness, security, performance, and maintainability issues. "+
+			"Step 3: For each genuine issue, call mcp__github__add_comment_to_pending_review with owner, repo, pullNumber, the file path, line number on the RIGHT side, and a clear body with suggested fix. "+
+			"Step 4: Call mcp__github__pull_request_review_write with method 'create', owner '%s', repo '%s', pullNumber %d, event 'REQUEST_CHANGES' if issues found or 'COMMENT' if clean, and a summary body. "+
+			"Be concise. Only flag genuine issues. Do not pad the review.",
+		p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch,
+		owner, repo, p.PRNumber,
+		owner, repo, p.PRNumber,
+	)
+
+	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions"}
+	if w.model != "" {
+		args = append(args, "--model", w.model)
+	}
+
+	output, exitCode, err := w.claude.Run(ctx, dir, args...)
+
+	// Always persist Claude output for debugging, regardless of exit code
+	if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {
+		logger.Error("failed to save review output", "error", saveErr)
+	}
+
 	if err != nil {
-		logger.Error("claude execution failed", "exit_code", exitCode, "error", err, "output", output)
+		logger.Error("claude execution failed", "exit_code", exitCode, "error", err)
 		return
 	}
 	if exitCode != 0 {
-		logger.Error("claude execution failed with non-zero exit code", "exit_code", exitCode, "output", output)
+		logger.Error("claude execution failed with non-zero exit code", "exit_code", exitCode)
 		return
 	}
 	logger.Info("claude execution completed", "exit_code", exitCode)
@@ -104,4 +134,51 @@ func (w *Worker) cloneRepo(ctx context.Context, p api.ReviewPayload, dir string)
 	}
 
 	return nil
+}
+
+// reviewOutputDir is the directory where Claude CLI output files are stored.
+const reviewOutputDir = "/app/logs/reviews"
+
+// saveReviewOutput persists the raw Claude CLI output to a timestamped file.
+func saveReviewOutput(runID string, p api.ReviewPayload, output string) error {
+	if err := os.MkdirAll(reviewOutputDir, 0755); err != nil {
+		return fmt.Errorf("create review output directory: %w", err)
+	}
+
+	repoSlug := p.RepoURL
+	if idx := strings.LastIndex(repoSlug, "/"); idx >= 0 {
+		repoSlug = repoSlug[idx+1:]
+	}
+	repoSlug = strings.TrimSuffix(repoSlug, ".git")
+
+	ts := time.Now().UTC().Format("20060102-150405")
+	filename := fmt.Sprintf("%s_%s_pr%d_%s.txt", ts, repoSlug, p.PRNumber, runID[:8])
+	path := filepath.Join(reviewOutputDir, filename)
+
+	return os.WriteFile(path, []byte(output), 0644)
+}
+
+// parseRepoURL extracts the GitHub owner and repo name from a git URL.
+// Supports formats: git@github.com:owner/repo.git, https://github.com/owner/repo.git
+func parseRepoURL(raw string) (owner, repo string) {
+	raw = strings.TrimSuffix(raw, ".git")
+
+	var slug string
+	if idx := strings.LastIndex(raw, ":"); idx >= 0 {
+		slug = raw[idx+1:]
+	} else if idx := strings.LastIndex(raw, "/"); idx >= 0 {
+		// Take last two segments for HTTPS URLs
+		parts := strings.Split(raw, "/")
+		if len(parts) >= 2 {
+			slug = parts[len(parts)-2] + "/" + parts[len(parts)-1]
+		} else {
+			slug = raw
+		}
+	}
+
+	parts := strings.SplitN(slug, "/", 2)
+	if len(parts) == 2 {
+		return parts[0], parts[1]
+	}
+	return slug, ""
 }

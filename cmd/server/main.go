@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,7 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,6 +22,7 @@ type claudeEnvConfig struct {
 	AuthToken           string
 	BaseURL             string
 	Timeout             string
+	Model               string
 	HaikuModel          string
 	SonnetModel         string
 	OpusModel           string
@@ -40,6 +40,7 @@ func loadClaudeEnvConfig() (*claudeEnvConfig, error) {
 		AuthToken:           authToken,
 		BaseURL:             os.Getenv("ANTHROPIC_BASE_URL"),
 		Timeout:             os.Getenv("API_TIMEOUT_MS"),
+		Model:               os.Getenv("CLAUDE_MODEL"),
 		HaikuModel:          os.Getenv("ANTHROPIC_DEFAULT_HAIKU_MODEL"),
 		SonnetModel:         os.Getenv("ANTHROPIC_DEFAULT_SONNET_MODEL"),
 		OpusModel:           os.Getenv("ANTHROPIC_DEFAULT_OPUS_MODEL"),
@@ -101,35 +102,28 @@ func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string
 	return string(out), exitCode, nil
 }
 
-// fixClaudeSettings substitutes ${GITHUB_PAT} in the Claude settings.json template
-// with the actual token value. This runs once at startup so the entrypoint script
-// isn't needed for env var interpolation.
-func fixClaudeSettings() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.Error("failed to get home directory, skipping settings fixup", "error", err)
-		return
-	}
-
-	p := filepath.Join(home, ".claude", "settings.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		slog.Error("failed to read Claude settings.json", "path", p, "error", err)
-		return
-	}
-
+// configureClaudeMCP registers the GitHub MCP server with Claude Code via
+// `claude mcp add`. This is required because Claude Code v2.1+ ignores
+// mcpServers in settings.json and reads from .claude.json instead.
+func configureClaudeMCP(claudePath string) {
 	pat := os.Getenv("GITHUB_PAT")
 	if pat == "" {
-		slog.Error("GITHUB_PAT not set, skipping settings fixup")
+		slog.Error("GITHUB_PAT not set, skipping MCP configuration")
 		return
 	}
 
-	replaced := bytes.ReplaceAll(data, []byte("${GITHUB_PAT}"), []byte(pat))
-	if err := os.WriteFile(p, replaced, 0644); err != nil {
-		slog.Error("failed to write Claude settings.json", "path", p, "error", err)
+	cmd := exec.Command(claudePath, "mcp", "add", "github",
+		"-t", "http",
+		"-s", "user",
+		"-H", fmt.Sprintf("Authorization: Bearer %s", pat),
+		"--", "https://api.githubcopilot.com/mcp",
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		slog.Error("failed to configure GitHub MCP server", "error", err, "output", string(out))
 		return
 	}
-	slog.Info("Claude settings.json updated with GITHUB_PAT")
+	slog.Info("GitHub MCP server configured successfully", "output", strings.TrimSpace(string(out)))
 }
 
 func main() {
@@ -163,9 +157,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath)
+	model := os.Getenv("CLAUDE_MODEL")
+	slog.Info("loaded configuration", "claude_path", claudePath, "model", model, "base_url", claudeConfig.BaseURL)
 
-	fixClaudeSettings()
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model)
+
+	configureClaudeMCP(claudePath)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))

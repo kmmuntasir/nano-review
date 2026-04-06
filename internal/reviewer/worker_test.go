@@ -132,7 +132,7 @@ func testPayload() api.ReviewPayload {
 
 func TestNewWorker(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, logger, "git", "claude")
+	w := NewWorker(nil, logger, "git", "claude", "")
 
 	if w == nil {
 		t.Fatal("NewWorker returned nil")
@@ -149,7 +149,7 @@ func TestStartReview_ReturnsNonEmptyRunID(t *testing.T) {
 	claude := &mockClaudeRunner{exitCode: 0}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude")
+	w := NewWorker(claude, logger, "git", "claude", "")
 
 	runID, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -172,7 +172,7 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Use a non-existent git binary path to force clone failure
-	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude")
+	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -228,7 +228,7 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 	// is a no-op that exits 0, simulating a successful clone for the
 	// directory creation part. The actual clone will fail but we can
 	// verify Claude was attempted or not based on flow.
-	w := NewWorker(claude, logger, "true", "claude")
+	w := NewWorker(claude, logger, "true", "claude", "")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -276,7 +276,7 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude")
+	w := NewWorker(claude, logger, "git", "claude", "")
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,

@@ -2,14 +2,5 @@
   "env": {
     "DISABLE_TELEMETRY": "1",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
-  },
-  "mcpServers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${GITHUB_PAT}"
-      }
-    }
   }
 }

@@ -55,10 +55,10 @@ COPY --from=builder --chown=appuser:appuser /nano-review /usr/local/bin/nano-rev
 # Copy Claude Code configuration
 COPY --chown=appuser:appuser config/.claude/ /home/appuser/.claude/
 
-# Create log directory (needs root to create /app)
+# Create log directories (needs root to create /app)
 USER root
-RUN mkdir -p /app/logs && \
-    chown appuser:appuser /app
+RUN mkdir -p /app/logs/reviews && \
+    chown -R appuser:appuser /app
 
 WORKDIR /app
 
