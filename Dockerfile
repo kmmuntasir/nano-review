@@ -20,6 +20,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
+# Create SSH directory with proper permissions
+RUN mkdir -p /root/.ssh && \
+    chmod 700 /root/.ssh
+
+# Copy SSH configuration
+COPY config/.ssh/config /root/.ssh/config
+RUN chmod 600 /root/.ssh/config
+
+# Copy SSH deploy key (must exist locally - see keys/README.md)
+# This will fail if keys/deploy_key doesn't exist, which is intentional
+COPY keys/deploy_key /root/.ssh/deploy_key
+RUN chmod 600 /root/.ssh/deploy_key && \
+    echo "SSH deploy key installed successfully"
+
 # Install Claude Code CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash
 

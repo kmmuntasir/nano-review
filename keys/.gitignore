@@ -1,0 +1,8 @@
+# Private SSH keys - NEVER commit these to git
+deploy_key
+deploy_key.pem
+id_rsa
+id_ed25519
+*.key
+*.pem
+!*.pub

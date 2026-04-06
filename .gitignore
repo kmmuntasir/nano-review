@@ -39,3 +39,12 @@ Thumbs.db
 # AI generated docs (keep README.md)
 docs/ai_generated/*
 !docs/ai_generated/README.md
+
+# SSH private keys - NEVER commit these
+keys/deploy_key
+keys/deploy_key.pem
+keys/id_rsa
+keys/id_ed25519
+keys/*.key
+keys/*.pem
+!keys/*.pub

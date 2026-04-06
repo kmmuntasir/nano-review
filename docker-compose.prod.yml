@@ -1,5 +1,6 @@
 services:
   nano-review:
+    container_name: nano_review_prod
     restart: always
     deploy:
       resources:
