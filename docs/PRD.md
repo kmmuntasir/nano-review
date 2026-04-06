@@ -208,6 +208,7 @@ jobs:
 
 ```
 nano-review/
+├── .claude                   # Claude settings used for this project
 ├── Dockerfile
 ├── docker-compose.yml
 ├── docker-compose.staging.yml
@@ -222,13 +223,14 @@ nano-review/
 │   └── reviewer/
 │       └── worker.go
 ├── config/
-|   └── .claude
-│       └── commands/
-│       │   └── pr-review.md
+|   └── .claude               # Claude settings meant to be copied over during docker build
+│       ├── skills/
+│       │   └── pr-review/
+|       |       └── SKILL.md
 │       └── settings.json
 └── docs/
-    ├── concept.md
-    └── PRD.md
+    ├── PRD.md
+    └── roadmap.md
 ```
 
 ### Dockerfile
