@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -99,6 +101,37 @@ func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string
 	return string(out), exitCode, nil
 }
 
+// fixClaudeSettings substitutes ${GITHUB_PAT} in the Claude settings.json template
+// with the actual token value. This runs once at startup so the entrypoint script
+// isn't needed for env var interpolation.
+func fixClaudeSettings() {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		slog.Error("failed to get home directory, skipping settings fixup", "error", err)
+		return
+	}
+
+	p := filepath.Join(home, ".claude", "settings.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		slog.Error("failed to read Claude settings.json", "path", p, "error", err)
+		return
+	}
+
+	pat := os.Getenv("GITHUB_PAT")
+	if pat == "" {
+		slog.Error("GITHUB_PAT not set, skipping settings fixup")
+		return
+	}
+
+	replaced := bytes.ReplaceAll(data, []byte("${GITHUB_PAT}"), []byte(pat))
+	if err := os.WriteFile(p, replaced, 0644); err != nil {
+		slog.Error("failed to write Claude settings.json", "path", p, "error", err)
+		return
+	}
+	slog.Info("Claude settings.json updated with GITHUB_PAT")
+}
+
 func main() {
 	for _, env := range []string{"WEBHOOK_SECRET", "GITHUB_PAT"} {
 		if os.Getenv(env) == "" {
@@ -131,6 +164,8 @@ func main() {
 	}
 
 	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath)
+
+	fixClaudeSettings()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))

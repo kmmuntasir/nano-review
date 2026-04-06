@@ -44,7 +44,9 @@ func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath string) *
 // the review asynchronously. It returns the run ID immediately without blocking.
 func (w *Worker) StartReview(ctx context.Context, p api.ReviewPayload) (string, error) {
 	runID := uuid.New().String()
-	go w.processReview(ctx, runID, p)
+	// Create a new context for the background goroutine, independent of the HTTP request context
+	bgCtx := context.Background()
+	go w.processReview(bgCtx, runID, p)
 	return runID, nil
 }
 
@@ -70,9 +72,14 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	logger.Info("git clone completed")
 
 	logger.Info("claude execution started")
-	output, exitCode, err := w.claude.Run(ctx, dir, w.claudePath, "-p", "/pr-review", "--dangerously-skip-permissions")
+	prompt := fmt.Sprintf("/pr-review %d --base %s --head %s", p.PRNumber, p.BaseBranch, p.HeadBranch)
+	output, exitCode, err := w.claude.Run(ctx, dir, w.claudePath, "-p", prompt, "--dangerously-skip-permissions")
 	if err != nil {
 		logger.Error("claude execution failed", "exit_code", exitCode, "error", err, "output", output)
+		return
+	}
+	if exitCode != 0 {
+		logger.Error("claude execution failed with non-zero exit code", "exit_code", exitCode, "output", output)
 		return
 	}
 	logger.Info("claude execution completed", "exit_code", exitCode)
