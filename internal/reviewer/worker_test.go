@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -96,6 +97,14 @@ func (m *mockLogger) getErrors() []logEntry {
 	return out
 }
 
+func (m *mockLogger) getChildren() []*mockLogger {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]*mockLogger, len(m.children))
+	copy(out, m.children)
+	return out
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -168,7 +177,7 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	runID, err := w.StartReview(ctx, testPayload())
+	_, err := w.StartReview(ctx, testPayload())
 	if err != nil {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
@@ -182,20 +191,24 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 		t.Errorf("claude.Run called %d times, want 0 after clone failure", len(calls))
 	}
 
-	// Verify an error was logged about clone failure
-	errs := logger.getErrors()
+	// Verify an error was logged about clone failure.
+	// processReview calls logger.With() first, which returns a child mockLogger,
+	// so the error is logged on the child, not the parent.
 	found := false
-	for _, e := range errs {
-		if strings.Contains(e.msg, "git clone failed") {
-			found = true
+	for _, child := range logger.getChildren() {
+		for _, e := range child.getErrors() {
+			if strings.Contains(e.msg, "git clone failed") {
+				found = true
+				break
+			}
+		}
+		if found {
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected error log containing 'git clone failed', got: %+v", errs)
+		t.Errorf("expected error log containing 'git clone failed' on child logger, got none")
 	}
-
-	_ = runID
 }
 
 func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
@@ -234,24 +247,35 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	skipIfNoGit(t)
 
-	claude := &mockClaudeRunner{
-		output:   "review completed successfully",
-		exitCode: 0,
-		err:      nil,
-	}
-	logger := &mockLogger{}
-
-	// Create a real temp repo to clone into
+	// Create a local repo with a commit so --branch main works
 	tmpDir := t.TempDir()
 	repoDir := tmpDir + "/source"
+	workDir := tmpDir + "/work"
 
-	// Initialize a bare git repo to serve as clone target
-	if err := exec.Command("git", "init", "--bare", repoDir).Run(); err != nil {
+	if err := exec.Command("git", "init", "--bare", "--initial-branch=main", repoDir).Run(); err != nil {
 		t.Fatalf("failed to init bare repo: %v", err)
 	}
+	if err := exec.Command("git", "clone", repoDir, workDir).Run(); err != nil {
+		t.Fatalf("failed to clone bare repo: %v", err)
+	}
+	if err := os.WriteFile(workDir+"/README.md", []byte("test"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	if out, err := exec.Command("sh", "-c", "cd "+workDir+" && git add . && git -c user.name=test -c user.email=test@test.com commit -m init && git push origin main").CombinedOutput(); err != nil {
+		t.Fatalf("failed to seed repo: %v\n%s", err, string(out))
+	}
 
-	// Use a custom git command that clones the bare repo
-	// We'll set gitPath to "git" and use a local file:// URL
+	var wg sync.WaitGroup
+	wg.Add(1)
+	claude := &blockingMockClaudeRunner{
+		mockClaudeRunner: mockClaudeRunner{
+			output:   "review completed",
+			exitCode: 0,
+		},
+		onRun: func() { wg.Done() },
+	}
+	logger := newNopLogger()
+
 	w := NewWorker(claude, logger, "git", "claude")
 
 	payload := api.ReviewPayload{
@@ -264,13 +288,13 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	runID, err := w.StartReview(ctx, payload)
+	_, err := w.StartReview(ctx, payload)
 	if err != nil {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
 
-	// Wait for async goroutine to complete
-	time.Sleep(3 * time.Second)
+	// Wait for Claude to be called (implies clone succeeded)
+	wg.Wait()
 
 	calls := claude.getCalls()
 	if len(calls) != 1 {
@@ -282,12 +306,10 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 		t.Fatalf("claude.Run args length = %d, want at least 2", len(call.Args))
 	}
 
-	// Verify claude binary path is the first arg
 	if call.Args[0] != "claude" {
 		t.Errorf("claude.Run args[0] = %q, want %q", call.Args[0], "claude")
 	}
 
-	// Verify the prompt flag and skill name
 	foundPrompt := false
 	for i, arg := range call.Args {
 		if arg == "-p" && i+1 < len(call.Args) && call.Args[i+1] == "/pr-review" {
@@ -298,7 +320,6 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 		t.Errorf("claude.Run args = %v, want -p /pr-review present", call.Args)
 	}
 
-	// Verify --dangerously-skip-permissions flag
 	foundSkip := false
 	for _, arg := range call.Args {
 		if arg == "--dangerously-skip-permissions" {
@@ -310,12 +331,22 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 		t.Errorf("claude.Run args = %v, want --dangerously-skip-permissions present", call.Args)
 	}
 
-	// Verify the directory exists (temp dir should have been created and used)
 	if call.Dir == "" {
 		t.Error("claude.Run dir is empty")
 	}
+}
 
-	_ = runID
+// blockingMockClaudeRunner wraps mockClaudeRunner with a callback invoked on Run.
+type blockingMockClaudeRunner struct {
+	mockClaudeRunner
+	onRun func()
+}
+
+func (m *blockingMockClaudeRunner) Run(ctx context.Context, dir string, args ...string) (string, int, error) {
+	if m.onRun != nil {
+		m.onRun()
+	}
+	return m.mockClaudeRunner.Run(ctx, dir, args...)
 }
 
 func TestSlogLogger_With(t *testing.T) {

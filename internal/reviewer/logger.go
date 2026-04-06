@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"gopkg.in/natefinsh/lumberjack.v2"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // slogLogger implements Logger by wrapping multiple slog.Logger instances.

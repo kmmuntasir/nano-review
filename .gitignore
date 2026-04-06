@@ -33,6 +33,9 @@ Thumbs.db
 .env
 .env.local
 
+# Application logs
+/app/logs/
+
 # AI generated docs (keep README.md)
 docs/ai_generated/*
 !docs/ai_generated/README.md
