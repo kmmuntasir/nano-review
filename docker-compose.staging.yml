@@ -1,0 +1,11 @@
+services:
+  nano-review:
+    restart: on-failure:5
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 512M

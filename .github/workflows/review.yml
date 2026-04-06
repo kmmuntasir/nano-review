@@ -1,0 +1,24 @@
+name: Nano Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Nano Review
+        env:
+          NANO_REVIEW_URL: ${{ secrets.NANO_REVIEW_URL }}
+          NANO_REVIEW_SECRET: ${{ secrets.NANO_REVIEW_SECRET }}
+        run: |
+          curl -fsSL -X POST "${NANO_REVIEW_URL}/review" \
+            -H "Content-Type: application/json" \
+            -H "X-Webhook-Secret: ${NANO_REVIEW_SECRET}" \
+            -d '{
+              "repo_url": "${{ github.event.pull_request.head.repo.ssh_url }}",
+              "pr_number": ${{ github.event.pull_request.number }},
+              "base_branch": "${{ github.base_ref }}",
+              "head_branch": "${{ github.head_ref }}"
+            }'
