@@ -89,6 +89,12 @@ Log volume: `review-logs:/app/logs` with lumberjack rotation (10MB, 7-day retent
   - `.claude/` (project root) — Development-only rules for AI agents working on this codebase (Go style, testing, git workflow). Never copied into Docker.
   - `config/.claude/` — Production Claude Code configuration (skill definitions, MCP server settings) copied into the Docker image at build time. This is what runs inside the container to perform PR reviews.
 
+## File Writing Direction
+
+Claude must write any new report, documentation, or summary file in `./docs/ai_generated/`, unless the user explicitly requests a different location. Do not create such files in the project root or any other directory without being asked.
+
+For permanent team reference documentation (CI/CD guides, security docs, pipeline setup, etc.), use `./docs/references/` instead. Files in `docs/references/` are tracked by git and shared with all team members.
+
 ## Documentation
 
 - `docs/PRD.md` — Full product requirements, API spec, Docker setup, security model
