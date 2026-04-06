@@ -79,18 +79,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	logger.Info("claude execution started")
 
 	owner, repo := parseRepoURL(p.RepoURL)
-	prompt := fmt.Sprintf(
-		"Review pull request #%d in %s/%s (base: %s, head: %s). "+
-			"You MUST use the GitHub MCP server tools to perform and submit this review. "+
-			"Step 1: Call mcp__github__pull_request_read with method 'get_diff', owner '%s', repo '%s', pullNumber %d. "+
-			"Step 2: Analyze the diff for correctness, security, performance, and maintainability issues. "+
-			"Step 3: For each genuine issue, call mcp__github__add_comment_to_pending_review with owner, repo, pullNumber, the file path, line number on the RIGHT side, and a clear body with suggested fix. "+
-			"Step 4: Call mcp__github__pull_request_review_write with method 'create', owner '%s', repo '%s', pullNumber %d, event 'REQUEST_CHANGES' if issues found or 'COMMENT' if clean, and a summary body. "+
-			"Be concise. Only flag genuine issues. Do not pad the review.",
-		p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch,
-		owner, repo, p.PRNumber,
-		owner, repo, p.PRNumber,
-	)
+	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s)", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch)
 
 	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions"}
 	if w.model != "" {
