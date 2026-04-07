@@ -334,6 +334,117 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	if call.Dir == "" {
 		t.Error("claude.Run dir is empty")
 	}
+
+	// Verify Claude's CWD is the parent temp dir, NOT the repo subdirectory
+	if strings.HasSuffix(call.Dir, "/source") {
+		t.Errorf("claude.Run dir = %q, should NOT end with repo name; expected parent temp dir", call.Dir)
+	}
+
+	// Extract the prompt string (the arg following -p)
+	var prompt string
+	for i, arg := range call.Args {
+		if arg == "-p" && i+1 < len(call.Args) {
+			prompt = call.Args[i+1]
+			break
+		}
+	}
+	if prompt == "" {
+		t.Fatal("could not find prompt string in claude.Run args")
+	}
+
+	// Verify the prompt contains the subdirectory clone instruction
+	if !strings.Contains(prompt, "The repo is cloned at ./") {
+		t.Errorf("prompt does not contain subdirectory clone instruction; prompt = %q", prompt)
+	}
+
+	// Verify the prompt contains the expected repo name ("source")
+	if !strings.Contains(prompt, "source") {
+		t.Errorf("prompt does not contain expected repo name %q; prompt = %q", "source", prompt)
+	}
+}
+
+func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
+	skipIfNoGit(t)
+
+	// Create a local bare repo with a commit
+	tmpDir := t.TempDir()
+	repoDir := tmpDir + "/source"
+	workDir := tmpDir + "/work"
+
+	if err := exec.Command("git", "init", "--bare", "--initial-branch=main", repoDir).Run(); err != nil {
+		t.Fatalf("failed to init bare repo: %v", err)
+	}
+	if err := exec.Command("git", "clone", repoDir, workDir).Run(); err != nil {
+		t.Fatalf("failed to clone bare repo: %v", err)
+	}
+	if err := os.WriteFile(workDir+"/README.md", []byte("test"), 0o644); err != nil {
+		t.Fatalf("failed to write file: %v", err)
+	}
+	if out, err := exec.Command("sh", "-c", "cd "+workDir+" && git add . && git -c user.name=test -c user.email=test@test.com commit -m init && git push origin main").CombinedOutput(); err != nil {
+		t.Fatalf("failed to seed repo: %v\n%s", err, string(out))
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	claude := &blockingMockClaudeRunner{
+		mockClaudeRunner: mockClaudeRunner{
+			output:   "review completed",
+			exitCode: 0,
+		},
+		onRun: func() { wg.Done() },
+	}
+	logger := newNopLogger()
+
+	w := NewWorker(claude, logger, "git", "claude", "")
+
+	payload := api.ReviewPayload{
+		RepoURL:    "file://" + repoDir,
+		PRNumber:   1,
+		BaseBranch: "main",
+		HeadBranch: "main",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	_, err := w.StartReview(ctx, payload)
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	// Wait for Claude to be called (implies clone succeeded)
+	wg.Wait()
+
+	calls := claude.getCalls()
+	if len(calls) != 1 {
+		t.Fatalf("claude.Run called %d times, want 1", len(calls))
+	}
+
+	call := calls[0]
+
+	// 1. Verify Claude's CWD is the parent temp dir, NOT the repo subdirectory.
+	//    The repo subdirectory is named "source" (derived from parseRepoURL of
+	//    "file://<...>/source"). Claude should run in the parent temp dir.
+	if strings.HasSuffix(call.Dir, "/source") {
+		t.Errorf("claude.Run dir = %q, should be the parent temp dir, not the repo subdirectory", call.Dir)
+	}
+
+	// 2. Extract the prompt string (the arg following -p)
+	var prompt string
+	for i, arg := range call.Args {
+		if arg == "-p" && i+1 < len(call.Args) {
+			prompt = call.Args[i+1]
+			break
+		}
+	}
+	if prompt == "" {
+		t.Fatal("could not find prompt string in claude.Run args")
+	}
+
+	// 3. Verify the prompt contains the repo subdirectory path (./source/)
+	if !strings.Contains(prompt, "./source/") {
+		t.Errorf("prompt should contain the repo subdirectory path ./source/; got: %q", prompt)
+	}
 }
 
 // blockingMockClaudeRunner wraps mockClaudeRunner with a callback invoked on Run.

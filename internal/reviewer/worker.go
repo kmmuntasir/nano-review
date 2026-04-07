@@ -71,8 +71,11 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	}
 	defer os.RemoveAll(dir)
 
+	owner, repo := parseRepoURL(p.RepoURL)
+	repoDir := filepath.Join(dir, repo)
+
 	logger.Info("git clone started")
-	if err := w.cloneRepo(ctx, p, dir); err != nil {
+	if err := w.cloneRepo(ctx, p, repoDir); err != nil {
 		logger.Error("git clone failed", "error", err)
 		return
 	}
@@ -80,8 +83,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 
 	logger.Info("claude execution started")
 
-	owner, repo := parseRepoURL(p.RepoURL)
-	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s)", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch)
+	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s). The repo is cloned at ./%s/", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch, repo)
 
 	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions"}
 	if w.model != "" {

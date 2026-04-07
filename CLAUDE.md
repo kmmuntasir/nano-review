@@ -47,7 +47,9 @@ rtk go test -tags=integration ./...
 
 ## Architecture
 
-GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async goroutine: git clone to /tmp/<id> → claude -p "/pr-review" → defer rm -rf /tmp/<id>
+GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async goroutine: git clone to /tmp/<id>/<repo-name>/ → claude -p "/pr-review" (CWD: /tmp/<id>/) → defer rm -rf /tmp/<id>
+
+- Subdirectory clone: repo is cloned into `/tmp/nano-review-<id>/<repo-name>/` with Claude CWD set to `/tmp/nano-review-<id>/` to prevent the target repo's `.claude/` config from being loaded as project config.
 
 ### Planned Source Layout
 
