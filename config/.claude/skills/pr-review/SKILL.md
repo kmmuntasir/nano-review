@@ -34,6 +34,8 @@ You MUST use the GitHub MCP server tools to perform this review. Do NOT just out
 
 5. **Fallback**: If inline comments fail for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
 
+6. **Final Step**: Finally, you MUST respond with a short summary of the review outcome, including the number of comments posted.
+
 ## Rules
 - Be concise. Do not comment on style preferences or formatting that linters handle.
 - Only flag genuine issues. Do not pad the review with trivial observations.

@@ -27,21 +27,23 @@ type Logger interface {
 
 // Worker handles the lifecycle of a single PR review: clone, run Claude, cleanup.
 type Worker struct {
-	claude     ClaudeRunner
-	logger     Logger
-	gitPath    string
-	claudePath string
-	model      string
+	claude        ClaudeRunner
+	logger        Logger
+	gitPath       string
+	claudePath    string
+	model         string
+	mcpConfigPath string
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
-func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model string) *Worker {
+func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string) *Worker {
 	return &Worker{
-		claude:     claude,
-		logger:     logger,
-		gitPath:    gitPath,
-		claudePath: claudePath,
-		model:      model,
+		claude:        claude,
+		logger:        logger,
+		gitPath:       gitPath,
+		claudePath:    claudePath,
+		model:         model,
+		mcpConfigPath: mcpConfigPath,
 	}
 }
 
@@ -84,6 +86,9 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions"}
 	if w.model != "" {
 		args = append(args, "--model", w.model)
+	}
+	if w.mcpConfigPath != "" {
+		args = append(args, "--mcp-config", w.mcpConfigPath, "--strict-mcp-config")
 	}
 
 	output, exitCode, err := w.claude.Run(ctx, dir, args...)

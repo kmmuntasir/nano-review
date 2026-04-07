@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -103,56 +102,46 @@ func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string
 	return string(out), exitCode, nil
 }
 
-// configureClaudeMCP injects the GITHUB_PAT into the MCP server config in
-// ~/.claude.json. Claude Code v2.1+ reads MCP servers from this file.
-func configureClaudeMCP() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		slog.Error("failed to get home directory, skipping MCP configuration", "error", err)
-		return
-	}
+// claudeMCPConfigPath is the path to the MCP config file passed to Claude Code
+// via --mcp-config. Using a dedicated file with --strict-mcp-config prevents
+// project-level .mcp.json files in cloned repos from overriding our GitHub MCP.
+const claudeMCPConfigPath = "/app/mcp-config.json"
 
+// configureClaudeMCP writes a dedicated MCP config file with the GitHub Copilot
+// MCP server using GITHUB_PAT for authentication. This file is passed to Claude
+// Code via --mcp-config --strict-mcp-config to prevent project-level .mcp.json
+// files in cloned repos from interfering with the review workflow.
+func configureClaudeMCP() string {
 	pat := os.Getenv("GITHUB_PAT")
 	if pat == "" {
 		slog.Error("GITHUB_PAT not set, skipping MCP configuration")
-		return
+		return ""
 	}
 
-	p := filepath.Join(home, ".claude.json")
-	data, err := os.ReadFile(p)
-	if err != nil {
-		slog.Error("failed to read .claude.json", "path", p, "error", err)
-		return
-	}
-
-	// Parse, inject mcpServers, write back
-	var cfg map[string]any
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		slog.Error("failed to parse .claude.json", "error", err)
-		return
-	}
-
-	cfg["mcpServers"] = map[string]any{
-		"github": map[string]any{
-			"type": "http",
-			"url":  "https://api.githubcopilot.com/mcp",
-			"headers": map[string]string{
-				"Authorization": "Bearer " + pat,
+	cfg := map[string]any{
+		"mcpServers": map[string]any{
+			"github": map[string]any{
+				"type": "http",
+				"url":  "https://api.githubcopilot.com/mcp",
+				"headers": map[string]string{
+					"Authorization": "Bearer " + pat,
+				},
 			},
 		},
 	}
 
 	out, err := json.MarshalIndent(cfg, "", "  ")
 	if err != nil {
-		slog.Error("failed to marshal .claude.json", "error", err)
-		return
+		slog.Error("failed to marshal MCP config", "error", err)
+		return ""
 	}
 
-	if err := os.WriteFile(p, out, 0644); err != nil {
-		slog.Error("failed to write .claude.json", "path", p, "error", err)
-		return
+	if err := os.WriteFile(claudeMCPConfigPath, out, 0644); err != nil {
+		slog.Error("failed to write MCP config file", "path", claudeMCPConfigPath, "error", err)
+		return ""
 	}
-	slog.Info("GitHub MCP server configured in .claude.json")
+	slog.Info("GitHub MCP server configured", "config_path", claudeMCPConfigPath)
+	return claudeMCPConfigPath
 }
 
 func main() {
@@ -189,9 +178,9 @@ func main() {
 	model := os.Getenv("CLAUDE_MODEL")
 	slog.Info("loaded configuration", "claude_path", claudePath, "model", model, "base_url", claudeConfig.BaseURL)
 
-	configureClaudeMCP()
+	mcpConfigPath := configureClaudeMCP()
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model)
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
