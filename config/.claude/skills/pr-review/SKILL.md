@@ -66,9 +66,13 @@ Do NOT run git commands without first changing into the repo subdirectory — yo
    - `event`: `REQUEST_CHANGES` if issues were found, `COMMENT` if the PR looks clean
    - `body`: A summary of the key findings or a positive note about what was reviewed
 
-6. **Fallback**: If inline comments fail for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
+6. **Fallback**: Only if inline comments fail for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
 
-7. **Final Step**: Finally, you MUST respond with a short summary of the review outcome, including the number of comments posted.
+7. **Final Step**: Finally, you MUST respond with a short report including these things:
+   - A very short summary of the review outcome
+   - Number of comments/reviews/summaries posted
+   - If you posted a summary comment, then include the reason why you had to fallback to a summary instead of inline comments.
+   - Any issues encountered during the review process (e.g. tool errors, connectivity issues, etc.)
 
 ## Rules
 - Be concise. Do not comment on style preferences or formatting that linters handle.
@@ -76,6 +80,7 @@ Do NOT run git commands without first changing into the repo subdirectory — yo
 - Include suggested code fixes in comments where practical.
 - You MUST actually call the GitHub MCP tools. Do not just describe what you would do.
 - Even if the PR already has previous comments, you must still perform your own independent review and post your own comments based on the diff you analyze. Do not rely on or reference existing comments.
+- Always try to post inline comments for specific issues. Do not skip straight to summary comments unless the tools fail. Summary comments are a fallback, not the primary review method.
 - Posting inline or summary comments (as relevant) is MANDATORY. Do not skip this step. 
 
 ### Parallel Subagent Strategy
