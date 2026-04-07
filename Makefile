@@ -17,8 +17,11 @@ PROD_COMPOSE  := -f docker-compose.yml -f docker-compose.prod.yml
 dev:
 	docker compose $(DEV_COMPOSE) up --build
 
-dev-d:
+dev-build-d:
 	docker compose $(DEV_COMPOSE) up --build -d
+
+dev-d:
+	docker compose $(DEV_COMPOSE) up -d
 
 dev-logs:
 	docker compose $(DEV_COMPOSE) logs -f nano-review
