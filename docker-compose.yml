@@ -10,6 +10,7 @@ services:
       - .env
     volumes:
       - review-logs:/app/logs
+      - ./config/.claude:/home/appuser/.claude:ro
     restart: unless-stopped
 
 volumes:
