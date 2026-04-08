@@ -144,22 +144,24 @@ Run with: `go test -tags=integration ./...`
 
 ## Running Tests
 
+> **Go is not installed on the host machine.** All test commands must run inside the Docker container via `docker compose exec`. See `docs/references/dev-setup.md` for full setup instructions.
+
 ```bash
 # All tests
-go test ./...
+docker compose exec nano-review go test ./...
 
 # Specific package
-go test ./internal/api/
+docker compose exec nano-review go test ./internal/api/
 
 # Verbose with coverage
-go test -v -cover ./...
+docker compose exec nano-review go test -v -cover ./...
 
 # Coverage profile
-go test -coverprofile=coverage.out ./...
-go tool cover -html=coverage.out -o coverage.html
+docker compose exec nano-review go test -coverprofile=coverage.out ./...
+docker compose exec nano-review go tool cover -html=coverage.out -o coverage.html
 
 # Integration tests only
-go test -tags=integration ./...
+docker compose exec nano-review go test -tags=integration ./...
 ```
 
 ## Best Practices

@@ -49,26 +49,28 @@ Edit `.env` with your values:
 
 ## Testing
 
+> **Go is not installed on the host.** All test commands must run inside the Docker container. Use `docker compose exec` after starting the dev container, or `docker compose run` for one-off invocations.
+
 ```bash
 # Run all tests with race detector
-go test -race ./...
+docker compose exec nano-review go test -race ./...
 
 # Run tests for a specific package
-go test -race ./internal/api/
-go test -race ./internal/reviewer/
+docker compose exec nano-review go test -race ./internal/api/
+docker compose exec nano-review go test -race ./internal/reviewer/
 
 # Verbose with coverage
-go test -v -cover ./...
+docker compose exec nano-review go test -v -cover ./...
 
 # Generate HTML coverage report
-go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
+docker compose exec nano-review go test -coverprofile=coverage.out ./... && docker compose exec nano-review go tool cover -html=coverage.out
 ```
 
 ## Linting
 
 ```bash
-go vet ./...
-go fmt ./...
+docker compose exec nano-review go vet ./...
+docker compose exec nano-review go fmt ./...
 ```
 
 ## Manual API Test

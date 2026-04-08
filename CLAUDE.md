@@ -15,34 +15,26 @@ Greenfield — documentation and development rules are in place, but no Go sourc
 
 ## Build & Development Commands
 
+> **All Go tooling (build, test, lint) must run inside the Docker container.** Host machines do not have Go installed. Use `docker compose exec` to run commands against the running dev container, or `docker compose run` for one-off commands.
+
 ```bash
-# Build
-rtk go build -o /nano-review ./cmd/server
-
-# Test (all packages, with race detector)
-rtk go test -race ./...
-
-# Test a single package
-rtk go test -race ./internal/api/
-
-# Run one test by name
-rtk go test -race -run TestValidatePayload ./internal/api/
-
-# Verbose with coverage
-rtk go test -v -cover ./...
-
-# Coverage report
-rtk go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out
-
-# Lint
-rtk go vet ./...
-rtk go fmt ./...
-
-# Docker (dev)
+# Start the dev container
 rtk docker compose up --build
 
-# Integration tests (require Docker)
-rtk go test -tags=integration ./...
+# Run commands inside the container:
+docker compose exec nano-review go build -o /nano-review ./cmd/server
+
+docker compose exec nano-review go test -race ./...
+docker compose exec nano-review go test -race ./internal/api/
+docker compose exec nano-review go test -race -run TestValidatePayload ./internal/api/
+docker compose exec nano-review go test -v -cover ./...
+docker compose exec nano-review go test -coverprofile=coverage.out ./... && docker compose exec nano-review go tool cover -html=coverage.out
+
+docker compose exec nano-review go vet ./...
+docker compose exec nano-review go fmt ./...
+
+# Integration tests
+docker compose exec nano-review go test -tags=integration ./...
 ```
 
 ## Architecture
