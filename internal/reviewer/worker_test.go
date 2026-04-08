@@ -146,7 +146,7 @@ func testPayload() api.ReviewPayload {
 
 func TestNewWorker(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, nil, logger, "git", "claude", "", 0, 0)
+	w := NewWorker(nil, nil, logger, "git", "claude", "", "", 0, 0)
 
 	if w == nil {
 		t.Fatal("NewWorker returned nil")
@@ -163,7 +163,7 @@ func TestStartReview_ReturnsNonEmptyRunID(t *testing.T) {
 	claude := &mockClaudeRunner{exitCode: 0}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, nil, logger, "git", "claude", "", 0, 0)
+	w := NewWorker(claude, nil, logger, "git", "claude", "", "", 0, 0)
 
 	runID, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -186,7 +186,7 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Use a non-existent git binary path to force clone failure
-	w := NewWorker(claude, nil, logger, "/nonexistent/path/to/git", "claude", "", 0, 0)
+	w := NewWorker(claude, nil, logger, "/nonexistent/path/to/git", "claude", "", "", 0, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -242,7 +242,7 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 	// is a no-op that exits 0, simulating a successful clone for the
 	// directory creation part. The actual clone will fail but we can
 	// verify Claude was attempted or not based on flow.
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 0, 0)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 0, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -290,7 +290,7 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, nil, logger, "git", "claude", "", 0, 0)
+	w := NewWorker(claude, nil, logger, "git", "claude", "", "", 0, 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -409,7 +409,7 @@ func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, nil, logger, "git", "claude", "", 0, 0)
+	w := NewWorker(claude, nil, logger, "git", "claude", "", "", 0, 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -488,7 +488,7 @@ func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Very short timeout to trigger immediately
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 50*time.Millisecond, 0)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 50*time.Millisecond, 0)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -538,7 +538,7 @@ func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Generous timeout — should not fire
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 30*time.Second, 0)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 30*time.Second, 0)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -560,7 +560,7 @@ func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
 
 func TestNewWorker_ZeroDuration_UsesDefault(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, nil, logger, "git", "claude", "", 0, 0)
+	w := NewWorker(nil, nil, logger, "git", "claude", "", "", 0, 0)
 	if w.maxReviewDuration != DefaultMaxReviewDuration {
 		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, DefaultMaxReviewDuration)
 	}
@@ -568,7 +568,7 @@ func TestNewWorker_ZeroDuration_UsesDefault(t *testing.T) {
 
 func TestNewWorker_CustomDuration(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, nil, logger, "git", "claude", "", 5*time.Minute, 0)
+	w := NewWorker(nil, nil, logger, "git", "claude", "", "", 5*time.Minute, 0)
 	if w.maxReviewDuration != 5*time.Minute {
 		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, 5*time.Minute)
 	}
@@ -625,7 +625,7 @@ func TestProcessReview_RetryOnTransientError(t *testing.T) {
 	}
 	logger := &mockLogger{}
 
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 30*time.Second, 2)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 30*time.Second, 2)
 
 	runID, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -670,7 +670,7 @@ func TestProcessReview_NoRetryOnDeterministicError(t *testing.T) {
 	}
 	logger := &mockLogger{}
 
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 30*time.Second, 2)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 30*time.Second, 2)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -714,7 +714,7 @@ func TestProcessReview_RetryExhausted_LogsFinalError(t *testing.T) {
 	}
 	logger := &mockLogger{}
 
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 30*time.Second, 2)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 30*time.Second, 2)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -758,7 +758,7 @@ func TestProcessReview_NoRetryOnTimeout(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Very short timeout — should time out immediately without retry
-	w := NewWorker(claude, nil, logger, "true", "claude", "", 50*time.Millisecond, 2)
+	w := NewWorker(claude, nil, logger, "true", "claude", "", "", 50*time.Millisecond, 2)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -863,7 +863,7 @@ func TestIsTransientError(t *testing.T) {
 
 func TestNewWorker_NegativeRetries_ClampedToZero(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, nil, logger, "git", "claude", "", 0, -1)
+	w := NewWorker(nil, nil, logger, "git", "claude", "", "", 0, -1)
 	if w.maxRetries != 0 {
 		t.Errorf("maxRetries = %d, want 0 (clamped from negative)", w.maxRetries)
 	}
@@ -871,7 +871,7 @@ func TestNewWorker_NegativeRetries_ClampedToZero(t *testing.T) {
 
 func TestNewWorker_DefaultRetries(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, nil, logger, "git", "claude", "", 0, DefaultMaxRetries)
+	w := NewWorker(nil, nil, logger, "git", "claude", "", "", 0, DefaultMaxRetries)
 	if w.maxRetries != DefaultMaxRetries {
 		t.Errorf("maxRetries = %d, want %d", w.maxRetries, DefaultMaxRetries)
 	}
