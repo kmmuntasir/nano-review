@@ -29,7 +29,7 @@ func NewLogger(filePath string) (Logger, error) {
 		Filename:   filePath,
 		MaxSize:    10, // megabytes
 		MaxBackups: 3,
-		MaxAge:     7,  // days
+		MaxAge:     7, // days
 		Compress:   true,
 	}
 
@@ -74,7 +74,7 @@ func (l *slogLogger) Error(msg string, keysAndValues ...any) {
 // With returns a new Logger with the given key-value pairs added to all
 // underlying loggers.
 func (l *slogLogger) With(keysAndValues ...any) Logger {
- enriched := make([]*slog.Logger, len(l.loggers))
+	enriched := make([]*slog.Logger, len(l.loggers))
 	for i, lg := range l.loggers {
 		enriched[i] = lg.With(keysAndValues...)
 	}

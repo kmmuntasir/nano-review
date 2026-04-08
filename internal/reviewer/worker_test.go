@@ -62,16 +62,16 @@ func (m *mockClaudeRunner) getCalls() []mockCall {
 
 // mockLogger is a thread-safe mock implementing Logger.
 type mockLogger struct {
-	mu      sync.Mutex
-	infos   []logEntry
-	errors  []logEntry
-	withs   [][]any
+	mu       sync.Mutex
+	infos    []logEntry
+	errors   []logEntry
+	withs    [][]any
 	children []*mockLogger
 }
 
 type logEntry struct {
-	msg   string
-	kv    []any
+	msg string
+	kv  []any
 }
 
 func (m *mockLogger) Info(msg string, keysAndValues ...any) {
