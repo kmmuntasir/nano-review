@@ -53,20 +53,22 @@ Do NOT run git commands without first changing into the repo subdirectory — yo
 
    You can use the Parallel subagent strategy to speed up this analysis (see below).
 
-4. **Post inline comments**: For each genuine issue found, call `mcp__github__add_comment_to_pending_review` with:
+4. **Post inline comments**: For **EACH** genuine issue found, call `mcp__github__add_comment_to_pending_review` with:
    - `owner`, `repo`, `pullNumber` from the prompt
    - `path`: the file path from the diff
    - `line`: the relevant line number
    - `body`: clear explanation with suggested fix
    - `side`: `RIGHT` (new code)
 
+   **CRITICAL**: Each issue MUST get its own inline comment at the exact line where the issue occurs. Do NOT combine multiple issues into a single comment. Do NOT post a summary comment as a substitute for inline comments.
+
 5. **Submit the review**: Call `mcp__github__pull_request_review_write` with:
    - `method`: `create`
    - `owner`, `repo`, `pullNumber` from the prompt
    - `event`: `REQUEST_CHANGES` if issues were found, `COMMENT` if the PR looks clean
-   - `body`: A summary of the key findings or a positive note about what was reviewed
+   - `body`: A BRIEF overall summary only — do NOT repeat all the inline comments here. This should be a high-level note like "Found 5 issues requiring changes" or "LGTM, just minor suggestions."
 
-6. **Fallback**: Only if inline comments fail for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
+6. **Fallback**: Only if the inline comment tool (`mcp__github__add_comment_to_pending_review`) fails for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
 
 7. **Final Step**: Finally, you MUST respond with a short report including these things:
    - A very short summary of the review outcome
@@ -80,8 +82,13 @@ Do NOT run git commands without first changing into the repo subdirectory — yo
 - Include suggested code fixes in comments where practical.
 - You MUST actually call the GitHub MCP tools. Do not just describe what you would do.
 - Even if the PR already has previous comments, you must still perform your own independent review and post your own comments based on the diff you analyze. Do not rely on or reference existing comments.
-- Always try to post inline comments for specific issues. Do not skip straight to summary comments unless the tools fail. Summary comments are a fallback, not the primary review method.
-- Posting inline or summary comments (as relevant) is MANDATORY. Do not skip this step. 
+
+### INLINE COMMENTS ARE MANDATORY
+- **Each issue gets its own inline comment** at the exact line where it occurs.
+- **Do NOT combine multiple issues into one comment** — each issue should be posted separately.
+- **Do NOT use summary comments as a substitute for inline comments** — the review body should only contain a high-level summary, not a detailed list of issues.
+- **Do NOT skip inline comments** unless the inline comment tool actually fails. Summary comments are a fallback mechanism only.
+- Posting inline comments is the PRIMARY review method. This step is MANDATORY. 
 
 ### Parallel Subagent Strategy
 
@@ -95,6 +102,10 @@ This review can be accelerated using **up to 3 parallel subagents** (via the `Ag
 
 **When to parallelise:** Always use parallel subagents when the diff is non-trivial (more than a few files). For tiny diffs (1-2 files, cosmetic changes), a single-pass review is fine.
 
-**How to parallelise:** Launch all independent subagents in a single message using multiple `Agent` tool calls. Each subagent should receive the diff (via `git diff`) and its specific review scope. After all subagents return, synthesize their findings into the final review and continue with steps 3-4 as above.
+**How to parallelise:** Launch all independent subagents in a single message using multiple `Agent` tool calls. Each subagent should receive the diff (via `git diff`) and its specific review scope. After all subagents return, synthesize their findings into inline comments — one per issue, at the exact line.
 
-**Subagents for Posting Comments:** You can also delegate the posting of inline comments to subagents if needed, to save context in the main agent. Just ensure the subagent receives all necessary information (file paths, line numbers, comment bodies) to perform this task effectively.
+**Critical Reminders for Parallel Review:**
+- Each subagent should return findings with file paths and line numbers
+- YOU (the main agent) are responsible for posting inline comments — do NOT let subagents post them directly to avoid coordination issues
+- When synthesizing findings, create ONE inline comment per issue at the exact line — do NOT combine issues
+- After posting all inline comments, submit the review with a brief summary only
