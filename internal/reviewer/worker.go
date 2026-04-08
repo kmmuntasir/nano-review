@@ -147,7 +147,6 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 
 	var output string
 	var exitCode int
-	var err error
 
 	for attempt := range w.maxRetries + 1 {
 		output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
