@@ -198,9 +198,21 @@ func main() {
 
 	slog.Info("loaded configuration", "claude_path", claudePath, "model", model, "base_url", claudeConfig.BaseURL, "max_review_duration", maxReviewDuration)
 
+	maxRetries := reviewer.DefaultMaxRetries
+	if v := os.Getenv("MAX_RETRIES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			if n < 0 {
+				n = 0
+			}
+			maxRetries = n
+		} else {
+			slog.Error("invalid MAX_RETRIES, using default", "value", v, "error", err)
+		}
+	}
+
 	mcpConfigPath := configureClaudeMCP()
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration)
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration, maxRetries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))

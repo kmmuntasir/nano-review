@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"errors"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -24,6 +25,14 @@ type mockClaudeRunner struct {
 	output   string
 	exitCode int
 	err      error
+	// per-call overrides: each call can return different results
+	perCall []mockResult
+}
+
+type mockResult struct {
+	output   string
+	exitCode int
+	err      error
 }
 
 type mockCall struct {
@@ -35,6 +44,11 @@ func (m *mockClaudeRunner) Run(_ context.Context, dir string, args ...string) (s
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, mockCall{Dir: dir, Args: args})
+	if len(m.perCall) > 0 {
+		r := m.perCall[0]
+		m.perCall = m.perCall[1:]
+		return r.output, r.exitCode, r.err
+	}
 	return m.output, m.exitCode, m.err
 }
 
@@ -132,7 +146,7 @@ func testPayload() api.ReviewPayload {
 
 func TestNewWorker(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, logger, "git", "claude", "", 0)
+	w := NewWorker(nil, logger, "git", "claude", "", 0, 0)
 
 	if w == nil {
 		t.Fatal("NewWorker returned nil")
@@ -149,7 +163,7 @@ func TestStartReview_ReturnsNonEmptyRunID(t *testing.T) {
 	claude := &mockClaudeRunner{exitCode: 0}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "", 0)
+	w := NewWorker(claude, logger, "git", "claude", "", 0, 0)
 
 	runID, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -172,7 +186,7 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Use a non-existent git binary path to force clone failure
-	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude", "", 0)
+	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude", "", 0, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -228,7 +242,7 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 	// is a no-op that exits 0, simulating a successful clone for the
 	// directory creation part. The actual clone will fail but we can
 	// verify Claude was attempted or not based on flow.
-	w := NewWorker(claude, logger, "true", "claude", "")
+	w := NewWorker(claude, logger, "true", "claude", "", 0, 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -276,7 +290,7 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "", 0)
+	w := NewWorker(claude, logger, "git", "claude", "", 0, 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -395,7 +409,7 @@ func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "", 0)
+	w := NewWorker(claude, logger, "git", "claude", "", 0, 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -474,7 +488,7 @@ func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Very short timeout to trigger immediately
-	w := NewWorker(claude, logger, "true", "claude", "", 50*time.Millisecond)
+	w := NewWorker(claude, logger, "true", "claude", "", 50*time.Millisecond, 0)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -524,7 +538,7 @@ func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Generous timeout — should not fire
-	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second)
+	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second, 0)
 
 	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -546,7 +560,7 @@ func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
 
 func TestNewWorker_ZeroDuration_UsesDefault(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, logger, "git", "claude", "", 0)
+	w := NewWorker(nil, logger, "git", "claude", "", 0, 0)
 	if w.maxReviewDuration != DefaultMaxReviewDuration {
 		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, DefaultMaxReviewDuration)
 	}
@@ -554,7 +568,7 @@ func TestNewWorker_ZeroDuration_UsesDefault(t *testing.T) {
 
 func TestNewWorker_CustomDuration(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, logger, "git", "claude", "", 5*time.Minute)
+	w := NewWorker(nil, logger, "git", "claude", "", 5*time.Minute, 0)
 	if w.maxReviewDuration != 5*time.Minute {
 		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, 5*time.Minute)
 	}
@@ -593,5 +607,272 @@ func TestMockLogger_With(t *testing.T) {
 	}
 	if len(childLogger.infos) != 1 {
 		t.Errorf("child logger infos = %d, want 1", len(childLogger.infos))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Retry tests
+// ---------------------------------------------------------------------------
+
+func TestProcessReview_RetryOnTransientError(t *testing.T) {
+	skipIfNoGit(t)
+
+	claude := &mockClaudeRunner{
+		perCall: []mockResult{
+			{output: "rate limit exceeded", exitCode: 2, err: nil},
+			{output: "review completed", exitCode: 0, err: nil},
+		},
+	}
+	logger := &mockLogger{}
+
+	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second, 2)
+
+	runID, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	// Wait for async goroutine (includes 1s backoff on first retry)
+	time.Sleep(3 * time.Second)
+
+	_ = runID
+
+	calls := claude.getCalls()
+	if len(calls) != 2 {
+		t.Fatalf("claude.Run called %d times, want 2 (initial + 1 retry)", len(calls))
+	}
+
+	// Verify retry was logged on child logger
+	foundRetry := false
+	for _, child := range logger.getChildren() {
+		for _, info := range child.getInfos() {
+			if info.msg == "transient failure, retrying" {
+				foundRetry = true
+				break
+			}
+		}
+		if foundRetry {
+			break
+		}
+	}
+	if !foundRetry {
+		t.Error("expected info log 'transient failure, retrying', got none")
+	}
+}
+
+func TestProcessReview_NoRetryOnDeterministicError(t *testing.T) {
+	skipIfNoGit(t)
+
+	claude := &mockClaudeRunner{
+		output:   "auth error: invalid token",
+		exitCode: 1,
+		err:      nil,
+	}
+	logger := &mockLogger{}
+
+	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second, 2)
+
+	_, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	time.Sleep(2 * time.Second)
+
+	calls := claude.getCalls()
+	if len(calls) != 1 {
+		t.Fatalf("claude.Run called %d times, want 1 (no retry for deterministic error)", len(calls))
+	}
+
+	// Should log a non-retry failure
+	found := false
+	for _, child := range logger.getChildren() {
+		for _, e := range child.getErrors() {
+			if e.msg == "claude execution failed" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error log 'claude execution failed' for deterministic error, got none")
+	}
+}
+
+func TestProcessReview_RetryExhausted_LogsFinalError(t *testing.T) {
+	skipIfNoGit(t)
+
+	claude := &mockClaudeRunner{
+		perCall: []mockResult{
+			{output: "rate limit exceeded", exitCode: 2, err: nil},
+			{output: "rate limit exceeded", exitCode: 2, err: nil},
+			{output: "rate limit exceeded", exitCode: 2, err: nil},
+		},
+	}
+	logger := &mockLogger{}
+
+	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second, 2)
+
+	_, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	// Wait for 2 retries with backoff (1s + 2s) plus processing
+	time.Sleep(5 * time.Second)
+
+	calls := claude.getCalls()
+	if len(calls) != 3 {
+		t.Fatalf("claude.Run called %d times, want 3 (initial + 2 retries)", len(calls))
+	}
+
+	// Verify final error log
+	found := false
+	for _, child := range logger.getChildren() {
+		for _, e := range child.getErrors() {
+			if e.msg == "claude execution failed after all retries" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Error("expected error log 'claude execution failed after all retries', got none")
+	}
+}
+
+func TestProcessReview_NoRetryOnTimeout(t *testing.T) {
+	skipIfNoGit(t)
+
+	claude := &mockClaudeRunner{
+		output:   "rate limit",
+		exitCode: 2,
+		err:      nil,
+	}
+	logger := &mockLogger{}
+
+	// Very short timeout — should time out immediately without retry
+	w := NewWorker(claude, logger, "true", "claude", "", 50*time.Millisecond, 2)
+
+	_, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+
+	// Should NOT have retried — context was cancelled
+	foundRetry := false
+	for _, child := range logger.getChildren() {
+		for _, info := range child.getInfos() {
+			if info.msg == "transient failure, retrying" {
+				foundRetry = true
+				break
+			}
+		}
+		if foundRetry {
+			break
+		}
+	}
+	if foundRetry {
+		t.Error("should NOT retry when context is already cancelled (timeout)")
+	}
+}
+
+func TestIsTransientError(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      error
+		exitCode int
+		output   string
+		want     bool
+	}{
+		{
+			name:     "success is not transient",
+			err:      nil,
+			exitCode: 0,
+			output:   "ok",
+			want:     false,
+		},
+		{
+			name:     "exit code 1 is not transient",
+			err:      nil,
+			exitCode: 1,
+			output:   "some error",
+			want:     false,
+		},
+		{
+			name:     "exit code 2 is transient",
+			err:      nil,
+			exitCode: 2,
+			output:   "",
+			want:     true,
+		},
+		{
+			name:     "rate limit in output",
+			err:      nil,
+			exitCode: 1,
+			output:   "Error: rate limit exceeded",
+			want:     true,
+		},
+		{
+			name:     "503 in output",
+			err:      nil,
+			exitCode: 1,
+			output:   "503 Service Unavailable",
+			want:     true,
+		},
+		{
+			name:     "overloaded in output",
+			err:      nil,
+			exitCode: 1,
+			output:   "Server is overloaded",
+			want:     true,
+		},
+		{
+			name:     "deterministic error with no pattern",
+			err:      nil,
+			exitCode: 1,
+			output:   "auth error: invalid token",
+			want:     false,
+		},
+		{
+			name:     "network timeout error",
+			err:      &net.OpError{Op: "dial", Net: "tcp", Err: &net.AddrError{Err: "i/o timeout"}},
+			exitCode: 0,
+			output:   "",
+			want:     true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isTransientError(tt.err, tt.exitCode, tt.output)
+			if got != tt.want {
+				t.Errorf("isTransientError() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewWorker_NegativeRetries_ClampedToZero(t *testing.T) {
+	logger := newNopLogger()
+	w := NewWorker(nil, logger, "git", "claude", "", 0, -1)
+	if w.maxRetries != 0 {
+		t.Errorf("maxRetries = %d, want 0 (clamped from negative)", w.maxRetries)
+	}
+}
+
+func TestNewWorker_DefaultRetries(t *testing.T) {
+	logger := newNopLogger()
+	w := NewWorker(nil, logger, "git", "claude", "", 0, DefaultMaxRetries)
+	if w.maxRetries != DefaultMaxRetries {
+		t.Errorf("maxRetries = %d, want %d", w.maxRetries, DefaultMaxRetries)
 	}
 }

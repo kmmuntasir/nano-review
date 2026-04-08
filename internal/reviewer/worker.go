@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,6 +14,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/kmmuntasir/nano-review/internal/api"
 )
+
+// DefaultMaxRetries is the maximum number of retry attempts for transient failures.
+const DefaultMaxRetries = 2
+
+// transientExitCodes are Claude Code CLI exit codes that indicate transient failures
+// worth retrying (rate limits, overloaded API, etc.).
+var transientExitCodes = map[int]bool{
+	// Claude Code CLI uses exit code 2 for rate-limit / overload errors.
+	2: true,
+}
 
 // ClaudeRunner abstracts execution of the Claude Code CLI for testability.
 type ClaudeRunner interface {
@@ -31,19 +42,23 @@ const DefaultMaxReviewDuration = 10 * time.Minute
 
 // Worker handles the lifecycle of a single PR review: clone, run Claude, cleanup.
 type Worker struct {
-	claude             ClaudeRunner
-	logger             Logger
-	gitPath            string
-	claudePath         string
-	model              string
-	mcpConfigPath      string
-	maxReviewDuration  time.Duration
+	claude            ClaudeRunner
+	logger            Logger
+	gitPath           string
+	claudePath        string
+	model             string
+	mcpConfigPath     string
+	maxReviewDuration time.Duration
+	maxRetries        int
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
-func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration) *Worker {
+func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration, maxRetries int) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
+	}
+	if maxRetries < 0 {
+		maxRetries = 0
 	}
 	return &Worker{
 		claude:            claude,
@@ -53,6 +68,7 @@ func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, m
 		model:             model,
 		mcpConfigPath:     mcpConfigPath,
 		maxReviewDuration: maxReviewDuration,
+		maxRetries:        maxRetries,
 	}
 }
 
@@ -105,27 +121,66 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		args = append(args, "--mcp-config", w.mcpConfigPath, "--strict-mcp-config")
 	}
 
-	output, exitCode, err := w.claude.Run(reviewCtx, dir, args...)
+	var output string
+	var exitCode int
+	var err error
 
-	// Always persist Claude output for debugging, regardless of exit code
-	if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {
-		logger.Error("failed to save review output", "error", saveErr)
-	}
+	for attempt := range w.maxRetries + 1 {
+		output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
 
-	if err != nil {
-		if errors.Is(reviewCtx.Err(), context.DeadlineExceeded) {
-			logger.Error("review timed out", "duration", w.maxReviewDuration)
+		// Always persist output for debugging, even on retry
+		if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {
+			logger.Error("failed to save review output", "error", saveErr)
+		}
+
+		if err == nil && exitCode == 0 {
+			logger.Info("claude execution completed", "exit_code", exitCode)
+			logger.Info("review completed")
 			return
 		}
-		logger.Error("claude execution failed", "exit_code", exitCode, "error", err)
+
+		// Context cancelled or timed out — never retry
+		if reviewCtx.Err() != nil {
+			if errors.Is(reviewCtx.Err(), context.DeadlineExceeded) {
+				logger.Error("review timed out", "duration", w.maxReviewDuration)
+			} else {
+				logger.Error("review cancelled", "error", reviewCtx.Err())
+			}
+			return
+		}
+
+		// Check if the failure is transient and retries remain
+		if !isTransientError(err, exitCode, output) {
+			logger.Error("claude execution failed", "exit_code", exitCode, "error", err)
+			return
+		}
+
+		// Transient failure — retry if attempts remain
+		if attempt < w.maxRetries {
+			backoff := time.Duration(1<<uint(attempt)) * time.Second
+			logger.Info("transient failure, retrying",
+				"attempt", attempt+1,
+				"max_retries", w.maxRetries,
+				"backoff", backoff,
+				"exit_code", exitCode,
+				"error", err,
+			)
+			select {
+			case <-time.After(backoff):
+			case <-reviewCtx.Done():
+				logger.Error("review cancelled during retry backoff")
+				return
+			}
+			continue
+		}
+
+		logger.Error("claude execution failed after all retries",
+			"attempts", w.maxRetries+1,
+			"exit_code", exitCode,
+			"error", err,
+		)
 		return
 	}
-	if exitCode != 0 {
-		logger.Error("claude execution failed with non-zero exit code", "exit_code", exitCode)
-		return
-	}
-	logger.Info("claude execution completed", "exit_code", exitCode)
-	logger.Info("review completed")
 }
 
 // cloneRepo performs a shallow single-branch clone of the target repo.
@@ -193,4 +248,54 @@ func parseRepoURL(raw string) (owner, repo string) {
 		return parts[0], parts[1]
 	}
 	return slug, ""
+}
+
+// isTransientError returns true if the Claude Code CLI failure should be retried.
+// This covers: network timeouts, rate limits (HTTP 429), server errors (500/502/503),
+// and known transient CLI exit codes.
+func isTransientError(err error, exitCode int, output string) bool {
+	if err == nil && exitCode == 0 {
+		return false
+	}
+
+	// Network-level errors: DNS failure, connection refused, timeout
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	// os/exec wraps context.DeadlineExceeded — the caller already handles
+	// context cancellation, so we only match pure network timeouts here.
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	// Connection reset / broken pipe etc.
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+
+	// Known transient exit codes (e.g. Claude Code CLI exit code 2 = rate limit)
+	if transientExitCodes[exitCode] {
+		return true
+	}
+
+	// Heuristic: check CLI output for transient error patterns
+	lower := strings.ToLower(output)
+	for _, pattern := range []string{
+		"rate limit",
+		"too many requests",
+		"overloaded",
+		"502 bad gateway",
+		"503 service unavailable",
+		"500 internal server error",
+		"temporary failure",
+		"connection reset",
+		"econnreset",
+		"etimedout",
+	} {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+
+	return false
 }
