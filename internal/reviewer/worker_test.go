@@ -326,12 +326,12 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 
 	foundPrompt := false
 	for i, arg := range call.Args {
-		if arg == "-p" && i+1 < len(call.Args) && call.Args[i+1] == "/pr-review" {
+		if arg == "-p" && i+1 < len(call.Args) && strings.HasPrefix(call.Args[i+1], "/pr-review") {
 			foundPrompt = true
 		}
 	}
 	if !foundPrompt {
-		t.Errorf("claude.Run args = %v, want -p /pr-review present", call.Args)
+		t.Errorf("claude.Run args = %v, want -p with /pr-review prompt present", call.Args)
 	}
 
 	foundSkip := false
@@ -462,14 +462,20 @@ func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
 }
 
 // blockingMockClaudeRunner wraps mockClaudeRunner with a callback invoked on Run.
+// If blockOnContext is true, it blocks until the context is cancelled before returning.
 type blockingMockClaudeRunner struct {
 	mockClaudeRunner
-	onRun func()
+	onRun          func()
+	blockOnContext bool
 }
 
 func (m *blockingMockClaudeRunner) Run(ctx context.Context, dir string, args ...string) (string, int, error) {
 	if m.onRun != nil {
 		m.onRun()
+	}
+	if m.blockOnContext {
+		<-ctx.Done()
+		return "blocked", 1, ctx.Err()
 	}
 	return m.mockClaudeRunner.Run(ctx, dir, args...)
 }
@@ -483,7 +489,8 @@ func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {
 			output:   "stuck",
 			exitCode: 0,
 		},
-		onRun: func() { close(done) },
+		onRun:          func() { close(done) },
+		blockOnContext: true,
 	}
 	logger := &mockLogger{}
 
@@ -750,10 +757,13 @@ func TestProcessReview_RetryExhausted_LogsFinalError(t *testing.T) {
 func TestProcessReview_NoRetryOnTimeout(t *testing.T) {
 	skipIfNoGit(t)
 
-	claude := &mockClaudeRunner{
-		output:   "rate limit",
-		exitCode: 2,
-		err:      nil,
+	claude := &blockingMockClaudeRunner{
+		mockClaudeRunner: mockClaudeRunner{
+			output:   "rate limit",
+			exitCode: 2,
+			err:      nil,
+		},
+		blockOnContext: true,
 	}
 	logger := &mockLogger{}
 

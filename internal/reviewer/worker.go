@@ -276,9 +276,20 @@ func saveReviewOutput(runID string, p api.ReviewPayload, output string) error {
 }
 
 // parseRepoURL extracts the GitHub owner and repo name from a git URL.
-// Supports formats: git@github.com:owner/repo.git, https://github.com/owner/repo.git
+// Supports formats: git@github.com:owner/repo.git, https://github.com/owner/repo.git,
+// file:///path/to/repo
 func parseRepoURL(raw string) (owner, repo string) {
 	raw = strings.TrimSuffix(raw, ".git")
+
+	// Strip file:// scheme prefix if present
+	if strings.HasPrefix(raw, "file://") {
+		raw = strings.TrimPrefix(raw, "file://")
+		// Extract the last path component as the repo name
+		if idx := strings.LastIndex(raw, "/"); idx >= 0 {
+			return raw[:idx], raw[idx+1:]
+		}
+		return "", raw
+	}
 
 	var slug string
 	if idx := strings.LastIndex(raw, ":"); idx >= 0 {
