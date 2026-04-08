@@ -23,7 +23,7 @@ func TestCreateAndGetReview(t *testing.T) {
 	store := testDB(t)
 	ctx := context.Background()
 
-	now := time.Now().UTC()
+	now := time.Now().UTC().Truncate(time.Second)
 	record := ReviewRecord{
 		RunID:      "test-run-001",
 		Repo:       "git@github.com:owner/repo.git",
