@@ -16,6 +16,7 @@ import (
 
 	"github.com/kmmuntasir/nano-review/internal/api"
 	"github.com/kmmuntasir/nano-review/internal/reviewer"
+	"github.com/kmmuntasir/nano-review/internal/storage"
 )
 
 // claudeEnvConfig holds environment variables passed through to the Claude Code CLI.
@@ -212,10 +213,22 @@ func main() {
 
 	mcpConfigPath := configureClaudeMCP()
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration, maxRetries)
+	dbPath := os.Getenv("DATABASE_PATH")
+	store, err := storage.Open(dbPath)
+	if err != nil {
+		slog.Error("failed to initialize database", "path", dbPath, "error", err)
+		os.Exit(1)
+	}
+	defer store.Close()
+	slog.Info("database initialized", "path", dbPath)
+
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration, maxRetries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
+	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
+	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
+	mux.HandleFunc("GET /metrics", api.HandleGetMetrics(store))
 
 	srv := &http.Server{
 		Addr:    ":" + port,

@@ -55,7 +55,9 @@ GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async
 
 ```
 cmd/server/main.go          # Entry point — wire deps, start HTTP server
-internal/api/handler.go     # POST /review handler — validate, respond immediately
+internal/api/handler.go     # HTTP handlers — POST /review, GET /reviews, GET /metrics
+internal/storage/store.go   # ReviewStore interface and record types
+internal/storage/sqlite.go  # SQLite implementation with WAL mode
 internal/reviewer/worker.go # Clone, run Claude Code CLI, cleanup
 config/.claude/             # Claude config copied into Docker image
 ```
@@ -63,27 +65,35 @@ config/.claude/             # Claude config copied into Docker image
 ### Key Interfaces
 
 - `ReviewStarter` — consumed by API handler, implemented by reviewer worker
+- `ReviewGetter` — consumed by API handlers for read endpoints, implemented by storage
+- `ReviewStore` — persists review records and provides query access
 - `ClaudeRunner` — abstracts `os/exec` calls for testability
 - `Logger` — structured logging interface wrapping `log/slog`
 
-### Single Endpoint
+### Endpoints
 
-`POST /review` — accepts `repo_url`, `pr_number`, `base_branch`, `head_branch`. Returns `200 {"status": "accepted", "run_id": "<uuid>"}` immediately. Review happens asynchronously in a goroutine.
+| Method | Path | Auth | Description |
+|--------|------|------|-------------|
+| POST | `/review` | Webhook secret | Start async review. Returns `{"status": "accepted", "run_id": "<uuid>"}` |
+| GET | `/reviews` | None | List reviews. Query params: `repo`, `status`, `limit`, `offset` |
+| GET | `/reviews/{run_id}` | None | Get single review detail with full output |
+| GET | `/metrics` | None | Aggregate stats: success rate, avg duration, reviews today |
 
 ### Environment Variables
 
 Required: `WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`
-Optional: `PORT` (8080), `CLAUDE_CODE_PATH`, `MAX_TURNS` (30), `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`
+Optional: `PORT` (8080), `CLAUDE_CODE_PATH`, `MAX_TURNS` (30), `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DATABASE_PATH` (`/app/data/reviews.db`)
 
 ## Docker
 
 Multi-stage build: Go builder → Ubuntu runtime with `git`, `curl`, `openssh-client`, Claude Code CLI.
 Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 Log volume: `review-logs:/app/logs` with lumberjack rotation (10MB, 7-day retention).
+Data volume: `review-data:/app/data` for SQLite database (review history).
 
 ## Key Decisions
 
-- Standard library `net/http` only — no router framework (single endpoint)
+- Standard library `net/http` only — no router framework (Go 1.22+ enhanced ServeMux)
 - No `pkg/` directory — all project code in `internal/`
 - Ephemeral execution: every review gets a fresh `/tmp/<run-id>`, force-deleted via `defer os.RemoveAll`
 - Webhook auth via `X-Webhook-Secret` header comparison

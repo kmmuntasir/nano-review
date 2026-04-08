@@ -1,6 +1,10 @@
 package api
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/kmmuntasir/nano-review/internal/storage"
+)
 
 // ReviewPayload represents the request body for initiating a PR review.
 type ReviewPayload struct {
@@ -37,4 +41,10 @@ func ValidatePayload(p ReviewPayload) error {
 		return fmt.Errorf("%w: head_branch is required", ErrInvalidPayload)
 	}
 	return nil
+}
+
+// ListReviewsResponse wraps a page of review records.
+type ListReviewsResponse struct {
+	Reviews []storage.ReviewRecord `json:"reviews"`
+	Count   int                    `json:"count"`
 }

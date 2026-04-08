@@ -81,6 +81,7 @@ All config via environment variables. No config files, no flags (except what Doc
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | No | — |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | No | — |
 | `CLAUDE_CODE_DISABLE_1M_CONTEXT` | No | — |
+| `DATABASE_PATH` | No | `/app/data/reviews.db` |
 
 ### Docker
 
@@ -88,6 +89,7 @@ All config via environment variables. No config files, no flags (except what Doc
 - `CGO_ENABLED=0` for static binary.
 - Docker Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 - Log directory mounted as named volume: `review-logs:/app/logs`.
+- Data directory mounted as named volume: `review-data:/app/data` (SQLite database).
 
 ### HTTP Server
 

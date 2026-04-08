@@ -13,6 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/kmmuntasir/nano-review/internal/api"
+	"github.com/kmmuntasir/nano-review/internal/storage"
 )
 
 // DefaultMaxRetries is the maximum number of retry attempts for transient failures.
@@ -43,6 +44,7 @@ const DefaultMaxReviewDuration = 10 * time.Minute
 // Worker handles the lifecycle of a single PR review: clone, run Claude, cleanup.
 type Worker struct {
 	claude            ClaudeRunner
+	store             storage.ReviewStore
 	logger            Logger
 	gitPath           string
 	claudePath        string
@@ -53,7 +55,8 @@ type Worker struct {
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
-func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration, maxRetries int) *Worker {
+// If store is nil, review records are not persisted (useful for testing).
+func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration, maxRetries int) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
 	}
@@ -62,6 +65,7 @@ func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, m
 	}
 	return &Worker{
 		claude:            claude,
+		store:             store,
 		logger:            logger,
 		gitPath:           gitPath,
 		claudePath:        claudePath,
@@ -91,10 +95,26 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	defer cancel()
 
 	logger.Info("review started")
+	startTime := time.Now()
+
+	// Record review as pending in storage
+	if w.store != nil {
+		if err := w.store.CreateReview(ctx, storage.ReviewRecord{
+			RunID:      runID,
+			Repo:       p.RepoURL,
+			PRNumber:   p.PRNumber,
+			BaseBranch: p.BaseBranch,
+			HeadBranch: p.HeadBranch,
+			CreatedAt:  startTime,
+		}); err != nil {
+			logger.Error("failed to create review record", "error", err)
+		}
+	}
 
 	dir, err := os.MkdirTemp("", "nano-review-*")
 	if err != nil {
 		logger.Error("failed to create temp directory", "error", err)
+		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
 		return
 	}
 	defer os.RemoveAll(dir)
@@ -105,9 +125,13 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	logger.Info("git clone started")
 	if err := w.cloneRepo(reviewCtx, p, repoDir); err != nil {
 		logger.Error("git clone failed", "error", err)
+		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
 		return
 	}
 	logger.Info("git clone completed")
+
+	// Update to running
+	w.recordResult(ctx, runID, startTime, storage.StatusRunning, "", 0, 0, "")
 
 	logger.Info("claude execution started")
 
@@ -136,6 +160,8 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		if err == nil && exitCode == 0 {
 			logger.Info("claude execution completed", "exit_code", exitCode)
 			logger.Info("review completed")
+			w.recordResult(ctx, runID, startTime, storage.StatusCompleted, storage.ConclusionSuccess,
+				time.Since(startTime).Milliseconds(), attempt+1, output)
 			return
 		}
 
@@ -143,8 +169,12 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		if reviewCtx.Err() != nil {
 			if errors.Is(reviewCtx.Err(), context.DeadlineExceeded) {
 				logger.Error("review timed out", "duration", w.maxReviewDuration)
+				w.recordResult(ctx, runID, startTime, storage.StatusTimedOut, storage.ConclusionTimedOut,
+					time.Since(startTime).Milliseconds(), attempt+1, output)
 			} else {
 				logger.Error("review cancelled", "error", reviewCtx.Err())
+				w.recordResult(ctx, runID, startTime, storage.StatusCancelled, storage.ConclusionCancelled,
+					time.Since(startTime).Milliseconds(), attempt+1, output)
 			}
 			return
 		}
@@ -152,6 +182,8 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		// Check if the failure is transient and retries remain
 		if !isTransientError(err, exitCode, output) {
 			logger.Error("claude execution failed", "exit_code", exitCode, "error", err)
+			w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure,
+				time.Since(startTime).Milliseconds(), attempt+1, output)
 			return
 		}
 
@@ -169,6 +201,8 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 			case <-time.After(backoff):
 			case <-reviewCtx.Done():
 				logger.Error("review cancelled during retry backoff")
+				w.recordResult(ctx, runID, startTime, storage.StatusCancelled, storage.ConclusionCancelled,
+					time.Since(startTime).Milliseconds(), attempt+1, output)
 				return
 			}
 			continue
@@ -179,7 +213,24 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 			"exit_code", exitCode,
 			"error", err,
 		)
+		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure,
+			time.Since(startTime).Milliseconds(), w.maxRetries+1, output)
 		return
+	}
+}
+
+// recordResult updates the review record in storage. No-op if store is nil.
+// Storage errors are logged but never abort the review.
+func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.Time, status storage.ReviewStatus, conclusion storage.ReviewConclusion, durationMs int64, attempts int, output string) {
+	if w.store == nil {
+		return
+	}
+	if err := w.store.UpdateReview(ctx, runID, status, conclusion, durationMs, attempts, output); err != nil {
+		w.logger.Error("failed to update review record",
+			"run_id", runID,
+			"status", status,
+			"error", err,
+		)
 	}
 }
 

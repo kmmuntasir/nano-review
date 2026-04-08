@@ -8,6 +8,9 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/kmmuntasir/nano-review/internal/storage"
 )
 
 type mockReviewStarter struct {
@@ -181,5 +184,227 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 	}
 	if result.RunID != "test-run-123" {
 		t.Errorf("run_id = %q, want %q", result.RunID, "test-run-123")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Mocks for review history handlers
+// ---------------------------------------------------------------------------
+
+type mockReviewGetter struct {
+	review  *storage.ReviewRecord
+	reviews []storage.ReviewRecord
+	metrics *storage.Metrics
+	err     error
+}
+
+func (m *mockReviewGetter) GetReview(_ context.Context, runID string) (*storage.ReviewRecord, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	if m.review != nil && m.review.RunID == runID {
+		return m.review, nil
+	}
+	return nil, storage.ErrNotFound
+}
+
+func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) ([]storage.ReviewRecord, error) {
+	return m.reviews, m.err
+}
+
+func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, error) {
+	return m.metrics, m.err
+}
+
+// ---------------------------------------------------------------------------
+// HandleListReviews tests
+// ---------------------------------------------------------------------------
+
+func TestHandleListReviews_Success(t *testing.T) {
+	getter := &mockReviewGetter{
+		reviews: []storage.ReviewRecord{
+			{RunID: "r1", Repo: "owner/repo.git", PRNumber: 1, Status: storage.StatusCompleted, Conclusion: storage.ConclusionSuccess, CreatedAt: time.Now()},
+			{RunID: "r2", Repo: "owner/repo.git", PRNumber: 2, Status: storage.StatusPending, CreatedAt: time.Now()},
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+	w := httptest.NewRecorder()
+
+	HandleListReviews(getter)(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result ListReviewsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Count != 2 {
+		t.Errorf("count = %d, want 2", result.Count)
+	}
+}
+
+func TestHandleListReviews_StorageError(t *testing.T) {
+	getter := &mockReviewGetter{
+		reviews: nil,
+		err:     errors.New("db error"),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+	w := httptest.NewRecorder()
+
+	HandleListReviews(getter)(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HandleGetReview tests
+// ---------------------------------------------------------------------------
+
+func TestHandleGetReview_Success(t *testing.T) {
+	getter := &mockReviewGetter{
+		review: &storage.ReviewRecord{
+			RunID:      "abc-123",
+			Repo:       "owner/repo.git",
+			PRNumber:   42,
+			Status:     storage.StatusCompleted,
+			Conclusion: storage.ConclusionSuccess,
+			DurationMs: 5000,
+			CreatedAt:  time.Now(),
+		},
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result storage.ReviewRecord
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.RunID != "abc-123" {
+		t.Errorf("run_id = %q, want %q", result.RunID, "abc-123")
+	}
+}
+
+func TestHandleGetReview_NotFound(t *testing.T) {
+	getter := &mockReviewGetter{}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews/nonexistent", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
+	}
+}
+
+func TestHandleGetReview_StorageError(t *testing.T) {
+	getter := &mockReviewGetter{
+		err: errors.New("db error"),
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
+	w := httptest.NewRecorder()
+
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HandleGetMetrics tests
+// ---------------------------------------------------------------------------
+
+func TestHandleGetMetrics_Success(t *testing.T) {
+	getter := &mockReviewGetter{
+		metrics: &storage.Metrics{
+			TotalReviews:   10,
+			SuccessCount:   8,
+			FailureCount:   1,
+			TimedOutCount:  1,
+			CancelledCount: 0,
+			AvgDurationMs:  4500.0,
+			ReviewsToday:   3,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	HandleGetMetrics(getter)(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result storage.Metrics
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.TotalReviews != 10 {
+		t.Errorf("total_reviews = %d, want 10", result.TotalReviews)
+	}
+	if result.SuccessCount != 8 {
+		t.Errorf("success_count = %d, want 8", result.SuccessCount)
+	}
+}
+
+func TestHandleGetMetrics_StorageError(t *testing.T) {
+	getter := &mockReviewGetter{
+		metrics: nil,
+		err:     errors.New("db error"),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/metrics", nil)
+	w := httptest.NewRecorder()
+
+	HandleGetMetrics(getter)(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusInternalServerError {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
 	}
 }
