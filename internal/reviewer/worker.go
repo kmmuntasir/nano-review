@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,25 +26,33 @@ type Logger interface {
 	With(keysAndValues ...any) Logger
 }
 
+// DefaultMaxReviewDuration is the maximum time allowed for a single review.
+const DefaultMaxReviewDuration = 10 * time.Minute
+
 // Worker handles the lifecycle of a single PR review: clone, run Claude, cleanup.
 type Worker struct {
-	claude        ClaudeRunner
-	logger        Logger
-	gitPath       string
-	claudePath    string
-	model         string
-	mcpConfigPath string
+	claude             ClaudeRunner
+	logger             Logger
+	gitPath            string
+	claudePath         string
+	model              string
+	mcpConfigPath      string
+	maxReviewDuration  time.Duration
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
-func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string) *Worker {
+func NewWorker(claude ClaudeRunner, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration) *Worker {
+	if maxReviewDuration <= 0 {
+		maxReviewDuration = DefaultMaxReviewDuration
+	}
 	return &Worker{
-		claude:        claude,
-		logger:        logger,
-		gitPath:       gitPath,
-		claudePath:    claudePath,
-		model:         model,
-		mcpConfigPath: mcpConfigPath,
+		claude:            claude,
+		logger:            logger,
+		gitPath:           gitPath,
+		claudePath:        claudePath,
+		model:             model,
+		mcpConfigPath:     mcpConfigPath,
+		maxReviewDuration: maxReviewDuration,
 	}
 }
 
@@ -62,6 +71,9 @@ func (w *Worker) StartReview(ctx context.Context, p api.ReviewPayload) (string, 
 func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPayload) {
 	logger := w.logger.With("run_id", runID, "pr_number", p.PRNumber, "repo", p.RepoURL)
 
+	reviewCtx, cancel := context.WithTimeout(ctx, w.maxReviewDuration)
+	defer cancel()
+
 	logger.Info("review started")
 
 	dir, err := os.MkdirTemp("", "nano-review-*")
@@ -75,7 +87,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	repoDir := filepath.Join(dir, repo)
 
 	logger.Info("git clone started")
-	if err := w.cloneRepo(ctx, p, repoDir); err != nil {
+	if err := w.cloneRepo(reviewCtx, p, repoDir); err != nil {
 		logger.Error("git clone failed", "error", err)
 		return
 	}
@@ -93,7 +105,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		args = append(args, "--mcp-config", w.mcpConfigPath, "--strict-mcp-config")
 	}
 
-	output, exitCode, err := w.claude.Run(ctx, dir, args...)
+	output, exitCode, err := w.claude.Run(reviewCtx, dir, args...)
 
 	// Always persist Claude output for debugging, regardless of exit code
 	if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {
@@ -101,6 +113,10 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	}
 
 	if err != nil {
+		if errors.Is(reviewCtx.Err(), context.DeadlineExceeded) {
+			logger.Error("review timed out", "duration", w.maxReviewDuration)
+			return
+		}
 		logger.Error("claude execution failed", "exit_code", exitCode, "error", err)
 		return
 	}

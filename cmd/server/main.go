@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -58,6 +59,7 @@ type claudeCLI struct {
 func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string, int, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	// Build child process environment: inherit parent + inject Claude Code vars
 	env := os.Environ()
@@ -89,6 +91,14 @@ func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string
 	cmd.Env = env
 
 	out, err := cmd.CombinedOutput()
+
+	// Kill the entire process group to clean up any child processes
+	// (shell, git, etc.) spawned by Claude Code. Safe to call even if
+	// the process already exited — ESRCH is ignored.
+	if cmd.Process != nil {
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
+
 	exitCode := 0
 	if err != nil {
 		var exitErr *exec.ExitError
@@ -176,11 +186,21 @@ func main() {
 	}
 
 	model := os.Getenv("CLAUDE_MODEL")
-	slog.Info("loaded configuration", "claude_path", claudePath, "model", model, "base_url", claudeConfig.BaseURL)
+
+	maxReviewDuration := reviewer.DefaultMaxReviewDuration
+	if v := os.Getenv("MAX_REVIEW_DURATION"); v != "" {
+		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+			maxReviewDuration = time.Duration(secs) * time.Second
+		} else {
+			slog.Error("invalid MAX_REVIEW_DURATION, using default", "value", v, "error", err)
+		}
+	}
+
+	slog.Info("loaded configuration", "claude_path", claudePath, "model", model, "base_url", claudeConfig.BaseURL, "max_review_duration", maxReviewDuration)
 
 	mcpConfigPath := configureClaudeMCP()
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath)
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))

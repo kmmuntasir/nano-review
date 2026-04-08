@@ -132,7 +132,7 @@ func testPayload() api.ReviewPayload {
 
 func TestNewWorker(t *testing.T) {
 	logger := newNopLogger()
-	w := NewWorker(nil, logger, "git", "claude", "")
+	w := NewWorker(nil, logger, "git", "claude", "", 0)
 
 	if w == nil {
 		t.Fatal("NewWorker returned nil")
@@ -149,7 +149,7 @@ func TestStartReview_ReturnsNonEmptyRunID(t *testing.T) {
 	claude := &mockClaudeRunner{exitCode: 0}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "")
+	w := NewWorker(claude, logger, "git", "claude", "", 0)
 
 	runID, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
@@ -172,7 +172,7 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 	logger := &mockLogger{}
 
 	// Use a non-existent git binary path to force clone failure
-	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude", "")
+	w := NewWorker(claude, logger, "/nonexistent/path/to/git", "claude", "", 0)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -276,7 +276,7 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "")
+	w := NewWorker(claude, logger, "git", "claude", "", 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -395,7 +395,7 @@ func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
 	}
 	logger := newNopLogger()
 
-	w := NewWorker(claude, logger, "git", "claude", "")
+	w := NewWorker(claude, logger, "git", "claude", "", 0)
 
 	payload := api.ReviewPayload{
 		RepoURL:    "file://" + repoDir,
@@ -458,6 +458,106 @@ func (m *blockingMockClaudeRunner) Run(ctx context.Context, dir string, args ...
 		m.onRun()
 	}
 	return m.mockClaudeRunner.Run(ctx, dir, args...)
+}
+
+func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {
+	skipIfNoGit(t)
+
+	done := make(chan struct{})
+	claude := &blockingMockClaudeRunner{
+		mockClaudeRunner: mockClaudeRunner{
+			output:   "stuck",
+			exitCode: 0,
+		},
+		onRun: func() { close(done) },
+	}
+	logger := &mockLogger{}
+
+	// Very short timeout to trigger immediately
+	w := NewWorker(claude, logger, "true", "claude", "", 50*time.Millisecond)
+
+	_, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	// Wait for Claude to be invoked then for the timeout to fire
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Claude Run was never called")
+	}
+
+	// Wait for the timeout to fire and the goroutine to finish
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify the timeout error was logged on the child logger
+	found := false
+	for _, child := range logger.getChildren() {
+		for _, e := range child.getErrors() {
+			if e.msg == "review timed out" {
+				found = true
+				break
+			}
+		}
+		if found {
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected error log 'review timed out' on child logger, got none")
+	}
+}
+
+func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
+	skipIfNoGit(t)
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	claude := &blockingMockClaudeRunner{
+		mockClaudeRunner: mockClaudeRunner{
+			output:   "review completed",
+			exitCode: 0,
+		},
+		onRun: func() { wg.Done() },
+	}
+	logger := &mockLogger{}
+
+	// Generous timeout — should not fire
+	w := NewWorker(claude, logger, "true", "claude", "", 30*time.Second)
+
+	_, err := w.StartReview(context.Background(), testPayload())
+	if err != nil {
+		t.Fatalf("StartReview returned error: %v", err)
+	}
+
+	wg.Wait()
+	time.Sleep(100 * time.Millisecond)
+
+	// Verify no timeout was logged
+	for _, child := range logger.getChildren() {
+		for _, e := range child.getErrors() {
+			if e.msg == "review timed out" {
+				t.Error("unexpected 'review timed out' log when review completed normally")
+			}
+		}
+	}
+}
+
+func TestNewWorker_ZeroDuration_UsesDefault(t *testing.T) {
+	logger := newNopLogger()
+	w := NewWorker(nil, logger, "git", "claude", "", 0)
+	if w.maxReviewDuration != DefaultMaxReviewDuration {
+		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, DefaultMaxReviewDuration)
+	}
+}
+
+func TestNewWorker_CustomDuration(t *testing.T) {
+	logger := newNopLogger()
+	w := NewWorker(nil, logger, "git", "claude", "", 5*time.Minute)
+	if w.maxReviewDuration != 5*time.Minute {
+		t.Errorf("maxReviewDuration = %v, want %v", w.maxReviewDuration, 5*time.Minute)
+	}
 }
 
 func TestSlogLogger_With(t *testing.T) {
