@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nano Review</title>
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg: #ffffff;
+            --surface: #f9fafb;
+            --border: #e5e7eb;
+            --text: #111827;
+            --text-secondary: #6b7280;
+            --accent: #4f46e5;
+            --accent-hover: #4338ca;
+            --status-completed: #10b981;
+            --status-running: #3b82f6;
+            --status-pending: #f59e0b;
+            --status-failed: #ef4444;
+            --status-timed_out: #f97316;
+            --status-cancelled: #9ca3af;
+            --radius: 8px;
+            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--surface);
+            color: var(--text);
+            line-height: 1.5;
+            min-height: 100vh;
+        }
+
+        nav {
+            background: var(--bg);
+            border-bottom: 1px solid var(--border);
+            padding: 0 24px;
+            display: flex;
+            align-items: center;
+            height: 56px;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        nav .brand {
+            font-weight: 700;
+            font-size: 18px;
+            color: var(--accent);
+            text-decoration: none;
+            margin-right: 32px;
+        }
+
+        nav .links { display: flex; gap: 4px; }
+
+        nav a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            transition: background 0.15s, color 0.15s;
+        }
+
+        nav a:hover { background: var(--surface); color: var(--text); }
+        nav a.active { background: #eef2ff; color: var(--accent); }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* Stat cards */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .stat-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 20px;
+            box-shadow: var(--shadow);
+        }
+
+        .stat-card .label {
+            font-size: 13px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        .stat-card .value {
+            font-size: 28px;
+            font-weight: 700;
+            margin-top: 4px;
+        }
+
+        /* Table */
+        .table-wrap {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .table-header {
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .table-header h2 { font-size: 16px; font-weight: 600; }
+
+        .filters {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .filters select,
+        .filters input {
+            padding: 6px 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            font-size: 13px;
+            background: var(--bg);
+            color: var(--text);
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+
+        th {
+            text-align: left;
+            padding: 10px 16px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border);
+            background: var(--surface);
+        }
+
+        td {
+            padding: 10px 16px;
+            font-size: 14px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        tr:last-child td { border-bottom: none; }
+        tr:hover td { background: var(--surface); }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            color: white;
+        }
+
+        .badge-completed { background: var(--status-completed); }
+        .badge-running { background: var(--status-running); }
+        .badge-pending { background: var(--status-pending); color: #1f2937; }
+        .badge-failed { background: var(--status-failed); }
+        .badge-timed_out { background: var(--status-timed_out); }
+        .badge-cancelled { background: var(--status-cancelled); }
+
+        .run-id {
+            font-family: "SF Mono", "Fira Code", monospace;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        a.view-link {
+            color: var(--accent);
+            text-decoration: none;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        a.view-link:hover { text-decoration: underline; }
+
+        /* Buttons */
+        .btn {
+            display: inline-block;
+            padding: 8px 16px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.15s;
+            text-decoration: none;
+        }
+
+        .btn:hover { background: var(--surface); }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+        .btn-primary:hover { background: var(--accent-hover); }
+
+        .load-more-wrap { text-align: center; padding: 16px; }
+
+        /* Review detail */
+        .detail-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 24px;
+            flex-wrap: wrap;
+        }
+
+        .detail-header h1 { font-size: 22px; font-weight: 700; }
+
+        .meta-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .meta-card {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 16px;
+            box-shadow: var(--shadow);
+        }
+
+        .meta-card .label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 500;
+        }
+
+        .meta-card .value {
+            font-size: 15px;
+            font-weight: 600;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
+        .output-section {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            overflow: hidden;
+            box-shadow: var(--shadow);
+        }
+
+        .output-header {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--surface);
+        }
+
+        .output-header span { font-size: 14px; font-weight: 600; }
+
+        .output-body {
+            padding: 0;
+            max-height: 600px;
+            overflow: auto;
+        }
+
+        .output-body pre {
+            padding: 16px;
+            font-size: 13px;
+            font-family: "SF Mono", "Fira Code", monospace;
+            white-space: pre-wrap;
+            word-break: break-word;
+            line-height: 1.6;
+        }
+
+        .output-body.collapsed { max-height: 200px; }
+
+        /* Loading / empty states */
+        .loading, .empty {
+            text-align: center;
+            padding: 48px 24px;
+            color: var(--text-secondary);
+        }
+
+        .loading::after {
+            content: "";
+            display: inline-block;
+            width: 24px;
+            height: 24px;
+            border: 3px solid var(--border);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-left: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(2, 1fr); }
+            .table-wrap { overflow-x: auto; }
+            table { min-width: 640px; }
+            .container { padding: 16px; }
+        }
+
+        @media (max-width: 480px) {
+            .stats-grid { grid-template-columns: 1fr; }
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="#/dashboard" class="brand">Nano Review</a>
+        <div class="links">
+            <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
+            <a href="#/reviews" data-nav="reviews">Reviews</a>
+        </div>
+    </nav>
+    <div class="container"><div id="app"></div></div>
+
+    <script>
+    (function() {
+        "use strict";
+
+        var app = document.getElementById("app");
+        var pollTimer = null;
+
+        // --- API client ---
+        var api = {
+            getMetrics: function() {
+                return fetch("/metrics").then(function(r) { return r.json(); });
+            },
+            listReviews: function(params) {
+                var qs = new URLSearchParams(params).toString();
+                return fetch("/reviews?" + qs).then(function(r) { return r.json(); });
+            },
+            getReview: function(id) {
+                return fetch("/reviews/" + id).then(function(r) {
+                    if (r.status === 404) return null;
+                    return r.json();
+                });
+            }
+        };
+
+        // --- Helpers ---
+        function truncate(str, len) {
+            if (!str) return "";
+            if (str.length <= len) return str;
+            return str.slice(0, len) + "...";
+        }
+
+        function basename(url) {
+            if (!url) return "";
+            var parts = url.replace(/\/$/, "").split("/");
+            return parts[parts.length - 1];
+        }
+
+        function formatDuration(ms) {
+            if (!ms) return "-";
+            var s = Math.floor(ms / 1000);
+            var m = Math.floor(s / 60);
+            s = s % 60;
+            var h = Math.floor(m / 60);
+            m = m % 60;
+            if (h > 0) return h + "h " + m + "m " + s + "s";
+            if (m > 0) return m + "m " + s + "s";
+            return s + "s";
+        }
+
+        function formatDate(iso) {
+            if (!iso) return "-";
+            var d = new Date(iso);
+            return d.toLocaleString();
+        }
+
+        function formatPercent(part, total) {
+            if (!total) return "0%";
+            return Math.round((part / total) * 100) + "%";
+        }
+
+        function badgeClass(status) {
+            return "badge badge-" + (status || "pending");
+        }
+
+        function esc(str) {
+            var el = document.createElement("span");
+            el.textContent = str;
+            return el.innerHTML;
+        }
+
+        // --- Router ---
+        function route() {
+            stopPolling();
+            var hash = location.hash || "#/dashboard";
+            updateNav(hash);
+
+            if (hash === "#/" || hash === "" || hash === "#/dashboard") {
+                renderDashboard();
+            } else if (hash === "#/reviews") {
+                renderReviewList();
+            } else {
+                var match = hash.match(/^#\/reviews\/(.+)$/);
+                if (match) {
+                    renderReviewDetail(match[1]);
+                } else {
+                    renderDashboard();
+                }
+            }
+        }
+
+        function updateNav(hash) {
+            document.querySelectorAll("nav a[data-nav]").forEach(function(a) {
+                a.classList.toggle("active", hash.indexOf(a.getAttribute("data-nav")) !== -1);
+            });
+        }
+
+        function stopPolling() {
+            if (pollTimer) {
+                clearInterval(pollTimer);
+                pollTimer = null;
+            }
+        }
+
+        window.addEventListener("hashchange", route);
+
+        // --- Dashboard view ---
+        function renderDashboard() {
+            app.innerHTML = '<div class="loading">Loading metrics</div>';
+            Promise.all([api.getMetrics(), api.listReviews({ limit: 10 })]).then(function(results) {
+                var m = results[0];
+                var r = results[1];
+                renderDashboardContent(m, r.reviews || []);
+            }).catch(function() {
+                app.innerHTML = '<div class="empty">Failed to load dashboard data</div>';
+            });
+        }
+
+        function renderDashboardContent(m, reviews) {
+            var html = '<div class="stats-grid">' +
+                statCard("Total Reviews", m.total_reviews || 0) +
+                statCard("Success Rate", formatPercent(m.success_count || 0, m.total_reviews || 0)) +
+                statCard("Avg Duration", formatDuration(m.avg_duration_ms || 0)) +
+                statCard("Reviews Today", m.reviews_today || 0) +
+                '</div>' +
+                '<div class="table-wrap">' +
+                '<div class="table-header"><h2>Recent Reviews</h2></div>' +
+                reviewTable(reviews) +
+                '</div>';
+            app.innerHTML = html;
+
+            // Auto-refresh every 30s
+            pollTimer = setInterval(function() {
+                Promise.all([api.getMetrics(), api.listReviews({ limit: 10 })]).then(function(results) {
+                    renderDashboardContent(results[0], results[1].reviews || []);
+                });
+            }, 30000);
+        }
+
+        function statCard(label, value) {
+            return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
+        }
+
+        // --- Review list view ---
+        var listState = { status: "", repo: "", offset: 0, reviews: [], loading: false };
+
+        function renderReviewList() {
+            listState.offset = 0;
+            listState.reviews = [];
+            renderListContent();
+        }
+
+        function renderListContent() {
+            var html = '<div class="table-wrap">' +
+                '<div class="table-header">' +
+                '<h2>Reviews</h2>' +
+                '<div class="filters">' +
+                '<select id="status-filter" onchange="window.__applyFilter()">' +
+                '<option value="">All statuses</option>' +
+                '<option value="pending"' + (listState.status === "pending" ? " selected" : "") + '>Pending</option>' +
+                '<option value="running"' + (listState.status === "running" ? " selected" : "") + '>Running</option>' +
+                '<option value="completed"' + (listState.status === "completed" ? " selected" : "") + '>Completed</option>' +
+                '<option value="failed"' + (listState.status === "failed" ? " selected" : "") + '>Failed</option>' +
+                '<option value="timed_out"' + (listState.status === "timed_out" ? " selected" : "") + '>Timed out</option>' +
+                '<option value="cancelled"' + (listState.status === "cancelled" ? " selected" : "") + '>Cancelled</option>' +
+                '</select>' +
+                '<input type="text" id="repo-filter" placeholder="Filter by repo..." value="' + esc(listState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
+                '<button class="btn" onclick="window.__applyFilter()">Filter</button>' +
+                '</div></div>';
+
+            if (listState.loading) {
+                html += '<div class="loading">Loading</div>';
+            } else if (listState.reviews.length === 0) {
+                html += '<div class="empty">No reviews found</div>';
+            } else {
+                html += reviewTable(listState.reviews);
+                html += '<div class="load-more-wrap"><button class="btn" onclick="window.__loadMore()">Load more</button></div>';
+            }
+
+            html += '</div>';
+            app.innerHTML = html;
+        }
+
+        window.__applyFilter = function() {
+            var s = document.getElementById("status-filter");
+            var r = document.getElementById("repo-filter");
+            listState.status = s ? s.value : "";
+            listState.repo = r ? r.value : "";
+            listState.offset = 0;
+            listState.reviews = [];
+            fetchReviews();
+        };
+
+        window.__loadMore = function() {
+            fetchReviews();
+        };
+
+        function fetchReviews() {
+            listState.loading = true;
+            renderListContent();
+            var params = { limit: 20, offset: listState.offset };
+            if (listState.status) params.status = listState.status;
+            if (listState.repo) params.repo = listState.repo;
+            api.listReviews(params).then(function(data) {
+                listState.loading = false;
+                listState.reviews = listState.reviews.concat(data.reviews || []);
+                listState.offset += data.reviews ? data.reviews.length : 0;
+                renderListContent();
+            }).catch(function() {
+                listState.loading = false;
+                renderListContent();
+            });
+        }
+
+        // --- Review table ---
+        function reviewTable(reviews) {
+            if (!reviews || !reviews.length) {
+                return '<div class="empty">No reviews</div>';
+            }
+            var html = '<table><thead><tr>' +
+                '<th>Run ID</th><th>Repo</th><th>PR #</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
+                '</tr></thead><tbody>';
+            reviews.forEach(function(r) {
+                html += '<tr>' +
+                    '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
+                    '<td>' + esc(basename(r.repo)) + '</td>' +
+                    '<td>' + (r.pr_number || '-') + '</td>' +
+                    '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
+                    '<td>' + formatDuration(r.duration_ms) + '</td>' +
+                    '<td>' + formatDate(r.created_at) + '</td>' +
+                    '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
+                    '</tr>';
+            });
+            html += '</tbody></table>';
+            return html;
+        }
+
+        // --- Review detail view ---
+        function renderReviewDetail(runId) {
+            app.innerHTML = '<div class="loading">Loading review</div>';
+
+            function load() {
+                api.getReview(runId).then(function(r) {
+                    if (!r) {
+                        app.innerHTML = '<div class="empty">Review not found</div>';
+                        stopPolling();
+                        return;
+                    }
+                    renderDetailContent(r);
+                    if (r.status === "pending" || r.status === "running") {
+                        // Auto-refresh while in-progress
+                        if (!pollTimer) {
+                            pollTimer = setInterval(function() { load(); }, 5000);
+                        }
+                    } else {
+                        stopPolling();
+                    }
+                }).catch(function() {
+                    app.innerHTML = '<div class="empty">Failed to load review</div>';
+                });
+            }
+
+            load();
+        }
+
+        function renderDetailContent(r) {
+            var html = '<div class="detail-header">' +
+                '<button class="btn" onclick="location.hash=\'#/reviews\'">&#8592; Back</button>' +
+                '<h1>' + esc(truncate(r.run_id, 12)) + '</h1>' +
+                '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
+                '</div>';
+
+            html += '<div class="meta-grid">' +
+                metaCard("Repo", basename(r.repo)) +
+                metaCard("PR Number", "#" + (r.pr_number || "-")) +
+                metaCard("Status", r.status) +
+                metaCard("Conclusion", r.conclusion || "-") +
+                metaCard("Base Branch", r.base_branch || "-") +
+                metaCard("Head Branch", r.head_branch || "-") +
+                metaCard("Duration", formatDuration(r.duration_ms)) +
+                metaCard("Attempts", String(r.attempts || 0)) +
+                metaCard("Created", formatDate(r.created_at)) +
+                metaCard("Completed", formatDate(r.completed_at)) +
+                '</div>';
+
+            html += '<div class="output-section">' +
+                '<div class="output-header">' +
+                '<span>Claude Output</span>' +
+                '<button class="btn" onclick="this.closest(\'.output-section\').querySelector(\'.output-body\').classList.toggle(\'collapsed\');this.textContent=this.textContent===\'Expand\'?\'Collapse\':\'Expand\'">' +
+                (r.claude_output && r.claude_output.length > 2000 ? "Expand" : "Collapse") +
+                '</button>' +
+                '</div>' +
+                '<div class="output-body' + (r.claude_output && r.claude_output.length > 2000 ? ' collapsed' : '') + '">' +
+                '<pre>' + esc(r.claude_output || "No output available") + '</pre>' +
+                '</div></div>';
+
+            app.innerHTML = html;
+        }
+
+        function metaCard(label, value) {
+            return '<div class="meta-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
+        }
+
+        // --- Init ---
+        route();
+    })();
+    </script>
+</body>
+</html>

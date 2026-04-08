@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,6 +20,9 @@ import (
 	"github.com/kmmuntasir/nano-review/internal/reviewer"
 	"github.com/kmmuntasir/nano-review/internal/storage"
 )
+
+//go:embed all:web
+var webFS embed.FS
 
 // claudeEnvConfig holds environment variables passed through to the Claude Code CLI.
 type claudeEnvConfig struct {
@@ -229,6 +234,13 @@ func main() {
 	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
 	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
 	mux.HandleFunc("GET /metrics", api.HandleGetMetrics(store))
+
+	webContent, err := fs.Sub(webFS, "web")
+	if err != nil {
+		slog.Error("failed to prepare embedded web content", "error", err)
+		os.Exit(1)
+	}
+	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(webContent))))
 
 	srv := &http.Server{
 		Addr:    ":" + port,
