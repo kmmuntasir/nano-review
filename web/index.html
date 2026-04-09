@@ -1031,7 +1031,7 @@
         StreamParser.prototype._handleBlockStart = function(event) {
             var cb = event.content_block;
             if (!cb) return null;
-            var idx = cb.index;
+            var idx = event.index;
             var blockType = cb.type;
             this.blocks[idx] = {
                 type: blockType,
@@ -1155,6 +1155,7 @@
             this.metaElement = null;
             this.resultElement = null;
             this.isComplete = false;
+            this._pendingRenders = {};
             this._setupScrollDetection();
         }
 
@@ -1271,7 +1272,7 @@
                     summaryHtml +
                     '<span class="stream-block__status"><span class="stream-block__status-dot"></span>Running</span>';
                 var body = document.createElement("div");
-                body.className = "stream-block__body" + (isReadOnly ? " is-hidden" : " is-hidden");
+                body.className = "stream-block__body" + (isReadOnly ? " is-hidden" : "");
                 if (!isReadOnly) {
                     this._makeCollapsible(header, body);
                 }
@@ -1294,45 +1295,91 @@
                 }
                 this.accumulatedMarkdown[data.index] += data.text;
 
-                // Render into block if not yet present
+                // Immediate plain-text render — fast, no markdown parsing
                 var mdContainer = el.querySelector(".stream-markdown");
                 if (!mdContainer) {
                     mdContainer = document.createElement("div");
                     mdContainer.className = "stream-markdown stream-marking-cursor";
                     el.appendChild(mdContainer);
                 }
-                mdContainer.innerHTML = renderMarkdown(this.accumulatedMarkdown[data.index]);
-                this._scheduleMarkdownRender(data.index);
+                // Append delta as plain text span (immediate DOM update)
+                var span = document.createElement("span");
+                span.className = "stream-md-plain";
+                span.textContent = data.text;
+                mdContainer.appendChild(span);
+
+                // Debounced rich markdown render (200ms)
+                var self = this;
+                var capturedIdx = data.index;
+                this._scheduleRender("md-" + capturedIdx, function() {
+                    var container = self.blockElements[capturedIdx];
+                    if (!container) return;
+                    var md = container.querySelector(".stream-markdown");
+                    if (!md) return;
+                    md.innerHTML = renderMarkdown(self.accumulatedMarkdown[capturedIdx]);
+                    md.classList.add("stream-marking-cursor");
+                    self._highlightCodeBlocks(md);
+                }, 200);
 
             } else if (data.blockType === "thinking") {
                 var body = el.querySelector(".stream-block__body");
                 if (!body) return;
                 var text = this.parser.blocks[data.index].accumulated;
                 body.textContent = text;
-                // Update counter
-                var counter = el.querySelector(".stream-thinking-counter");
-                if (counter) counter.textContent = "(" + wordCount(text) + " words)";
+
+                // Debounced counter update (500ms)
+                var self = this;
+                var capturedIdx = data.index;
+                this._scheduleRender("think-" + capturedIdx, function() {
+                    var block = self.blockElements[capturedIdx];
+                    if (!block) return;
+                    var counter = block.querySelector(".stream-thinking-counter");
+                    if (counter) {
+                        var t = self.parser.blocks[capturedIdx];
+                        if (t) counter.textContent = "(" + wordCount(t.accumulated) + " words)";
+                    }
+                }, 500);
 
             } else if (data.blockType === "tool_use") {
                 var body = el.querySelector(".stream-block__body");
                 if (!body) return;
                 var acc = this.parser.blocks[data.index].accumulated;
                 var name = this.parser.blocks[data.index].name;
-                // Remove old input if present
-                var oldPre = body.querySelector(".stream-tool-input");
-                if (oldPre) oldPre.remove();
-                var pre = document.createElement("pre");
-                pre.className = "stream-tool-input";
-                // Render a smarter summary for known tools
-                var content = this._formatToolInput(name, acc);
-                pre.textContent = content;
-                body.appendChild(pre);
+
+                // Immediate plain-text update on existing <pre> (no DOM recreation)
+                var pre = body.querySelector(".stream-tool-input");
+                if (!pre) {
+                    pre = document.createElement("pre");
+                    pre.className = "stream-tool-input";
+                    body.appendChild(pre);
+                }
+                pre.textContent = acc;
+
+                // Debounced formatted render (300ms)
+                var self = this;
+                var capturedIdx = data.index;
+                this._scheduleRender("tool-" + capturedIdx, function() {
+                    var block = self.blockElements[capturedIdx];
+                    if (!block) return;
+                    var b = block.querySelector(".stream-block__body");
+                    if (!b) return;
+                    var p = b.querySelector(".stream-tool-input");
+                    if (!p) return;
+                    var blk = self.parser.blocks[capturedIdx];
+                    if (!blk) return;
+                    p.textContent = self._formatToolInput(blk.name, blk.accumulated);
+                }, 300);
             }
         };
 
         StreamRenderer.prototype._renderBlockEnd = function(data) {
             var el = this.blockElements[data.index];
             if (!el) return;
+
+            // Cancel any pending debounced renders for this block
+            this._cancelRender("md-" + data.index);
+            this._cancelRender("tool-" + data.index);
+            this._cancelRender("think-" + data.index);
 
             if (data.blockType === "text") {
                 // Final full markdown render, remove cursor
@@ -1345,6 +1392,14 @@
                 delete this.accumulatedMarkdown[data.index];
 
             } else if (data.blockType === "tool_use") {
+                // Final formatted render
+                var body = el.querySelector(".stream-block__body");
+                if (body) {
+                    var pre = body.querySelector(".stream-tool-input");
+                    if (pre) {
+                        pre.textContent = this._formatToolInput(data.name || "", data.fullText || "");
+                    }
+                }
                 // Update status to waiting for result
                 var statusEl = el.querySelector(".stream-block__status");
                 if (statusEl && !statusEl.querySelector(".stream-block__status-dot--success") && !statusEl.querySelector(".stream-block__status-dot--error")) {
@@ -1469,6 +1524,24 @@
                 bodyEl.classList.toggle("is-hidden", !isHidden);
                 headerEl.classList.toggle("is-collapsed", isHidden);
             });
+        };
+
+        StreamRenderer.prototype._scheduleRender = function(key, renderFn, delay) {
+            if (this._pendingRenders[key]) {
+                clearTimeout(this._pendingRenders[key]);
+            }
+            var self = this;
+            this._pendingRenders[key] = setTimeout(function() {
+                delete self._pendingRenders[key];
+                renderFn();
+            }, delay);
+        };
+
+        StreamRenderer.prototype._cancelRender = function(key) {
+            if (this._pendingRenders[key]) {
+                clearTimeout(this._pendingRenders[key]);
+                delete this._pendingRenders[key];
+            }
         };
 
         StreamRenderer.prototype._scheduleMarkdownRender = function(idx) {
