@@ -77,7 +77,7 @@ Receives a webhook payload from GitHub Actions and triggers an asynchronous PR r
 
 ```json
 {
-  "repo_url": "git@github.com:owner/repo.git",
+  "repo_url": "https://github.com/owner/repo.git",
   "pr_number": 42,
   "base_branch": "main",
   "head_branch": "feature/add-auth"
@@ -86,7 +86,7 @@ Receives a webhook payload from GitHub Actions and triggers an asynchronous PR r
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `repo_url` | string | Yes | SSH URL of the GitHub repository. |
+| `repo_url` | string | Yes | HTTPS URL of the GitHub repository. |
 | `pr_number` | integer | Yes | Pull request number. |
 | `base_branch` | string | Yes | The base (target) branch of the PR. |
 | `head_branch` | string | Yes | The head (source) branch of the PR. |
@@ -195,7 +195,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-Webhook-Secret: ${{ secrets.NANO_REVIEW_SECRET }}" \
             -d '{
-              "repo_url": "${{ github.event.pull_request.head.repo.ssh_url }}",
+              "repo_url": "${{ github.event.pull_request.head.repo.clone_url }}",
               "pr_number": ${{ github.event.pull_request.number }},
               "base_branch": "${{ github.base_ref }}",
               "head_branch": "${{ github.head_ref }}"
@@ -247,9 +247,9 @@ RUN CGO_ENABLED=0 go build -o /nano-review ./cmd/server
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
     curl \
     git \
-    openssh-client \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Claude Code CLI
@@ -274,7 +274,7 @@ CMD ["nano-review"]
 | `PORT` | No | Server port (default: `8080`). |
 | `WEBHOOK_SECRET` | Yes | Shared secret for webhook authentication. |
 | `ANTHROPIC_AUTH_TOKEN` | Yes | Auth token for Claude Code CLI. |
-| `GITHUB_PAT` | Yes | GitHub Personal Access Token for the MCP server. |
+| `GITHUB_PAT` | Yes | GitHub Personal Access Token for the MCP server and git clone authentication. |
 | `CLAUDE_CODE_PATH` | No | Override path to `claude` binary (default: auto-detected). |
 | `MAX_TURNS` | No | Max agentic turns for Claude Code (default: `30`). |
 | `ANTHROPIC_BASE_URL` | No | Custom API endpoint (e.g., Z.AI proxy). |
@@ -327,8 +327,7 @@ Core review logic:
 - **Webhook authentication**: Every request must include a valid `X-Webhook-Secret` header matching the server's configured secret.
 - **No secrets in code**: All secrets (`ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`, `WEBHOOK_SECRET`) are injected via environment variables.
 - **Ephemeral execution**: Each review runs in a fresh `/tmp/<run-id>` directory that is forcefully deleted after completion.
-- **SSH key scoping**: The server's SSH key should be scoped to only the target repository (deploy key with read-only access).
-- **GitHub PAT scoping**: The `GITHUB_PAT` should have minimal permissions (`repo` scope for PR read/write comments).
+- **GitHub PAT scoping**: The `GITHUB_PAT` should have minimal permissions (`repo` scope for PR read/write comments and git clone). The PAT is injected into git clone URLs at runtime (never written to disk or logged).
 
 ## 13. Error Handling
 

@@ -53,6 +53,7 @@ type Worker struct {
 	claudePath        string
 	model             string
 	mcpConfigPath     string
+	githubPat         string
 	maxReviewDuration time.Duration
 	maxRetries        int
 	streamPaths       sync.Map // runID (string) -> .stream.json absolute path (string)
@@ -60,7 +61,7 @@ type Worker struct {
 
 // NewWorker creates a new review Worker with the given dependencies.
 // If store is nil, review records are not persisted (useful for testing).
-func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gitPath, claudePath, model, mcpConfigPath string, maxReviewDuration time.Duration, maxRetries int) *Worker {
+func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
 	}
@@ -75,6 +76,7 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gi
 		claudePath:        claudePath,
 		model:             model,
 		mcpConfigPath:     mcpConfigPath,
+		githubPat:         githubPat,
 		maxReviewDuration: maxReviewDuration,
 		maxRetries:        maxRetries,
 	}
@@ -272,23 +274,60 @@ func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.
 }
 
 // cloneRepo performs a shallow single-branch clone of the target repo.
+// The GitHub PAT is injected into the clone URL at runtime (never written to disk or logged).
 func (w *Worker) cloneRepo(ctx context.Context, p api.ReviewPayload, dir string) error {
+	cloneURL := w.buildCloneURL(p.RepoURL)
+
 	cmd := exec.CommandContext(
 		ctx,
 		w.gitPath,
 		"clone",
 		"--branch", p.HeadBranch,
 		"--single-branch",
-		p.RepoURL,
+		cloneURL,
 		dir,
 	)
 
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("git clone %s into %s: %w (output: %s)", p.RepoURL, dir, err, string(out))
+		return fmt.Errorf("git clone %s into %s: %w (output: %s)", sanitizeURL(cloneURL), dir, err, string(out))
 	}
 
 	return nil
+}
+
+// buildCloneURL converts any git URL format to HTTPS with PAT authentication.
+// Supports SSH (git@github.com:owner/repo.git), HTTPS (https://github.com/owner/repo.git),
+// and PAT-embedded (https://x-access-token:<PAT>@github.com/owner/repo.git) formats.
+// Non-GitHub URLs (file://, etc.) are returned as-is.
+func (w *Worker) buildCloneURL(raw string) string {
+	// Already a PAT URL — return as-is
+	if strings.HasPrefix(raw, "https://x-access-token:") {
+		return raw
+	}
+	// SSH format: git@github.com:owner/repo.git → HTTPS PAT format
+	if strings.HasPrefix(raw, "git@") {
+		raw = strings.TrimPrefix(raw, "git@")
+		raw = strings.Replace(raw, ":", "/", 1)
+		return "https://x-access-token:" + w.githubPat + "@" + raw
+	}
+	// HTTPS format: https://github.com/owner/repo.git → inject PAT
+	if strings.HasPrefix(raw, "https://") {
+		return strings.Replace(raw, "https://", "https://x-access-token:"+w.githubPat+"@", 1)
+	}
+	// file:// or other — return as-is
+	return raw
+}
+
+// sanitizeURL masks the PAT token in a URL for safe logging.
+func sanitizeURL(raw string) string {
+	if idx := strings.Index(raw, "x-access-token:"); idx >= 0 {
+		end := strings.Index(raw[idx:], "@")
+		if end >= 0 {
+			return raw[:idx] + "x-access-token:***" + raw[idx+end:]
+		}
+	}
+	return raw
 }
 
 // reviewOutputDir is the directory where Claude CLI output files are stored.

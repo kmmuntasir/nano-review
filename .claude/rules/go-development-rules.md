@@ -85,7 +85,7 @@ All config via environment variables. No config files, no flags (except what Doc
 
 ### Docker
 
-- Multi-stage build: Go builder → minimal runtime image with `git`, `curl`, `openssh-client`, and Claude Code CLI.
+- Multi-stage build: Go builder → minimal runtime image with `git`, `curl`, and Claude Code CLI.
 - `CGO_ENABLED=0` for static binary.
 - Docker Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 - Log directory mounted as named volume: `review-logs:/app/logs`.
@@ -101,6 +101,5 @@ All config via environment variables. No config files, no flags (except what Doc
 ### Security
 
 - No secrets in code — all via environment variables.
-- SSH key scoped to target repo (deploy key, read-only).
-- GitHub PAT with minimal `repo` scope.
+- GitHub PAT with minimal `repo` scope (used for both git clone and GitHub MCP server).
 - Ephemeral temp directories — always force-delete after use.

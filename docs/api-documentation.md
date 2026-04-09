@@ -22,7 +22,7 @@ Start an asynchronous PR code review.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `repo_url` | `string` | Yes | Git repository URL. Supports SSH (`git@github.com:owner/repo.git`) and HTTPS (`https://github.com/owner/repo.git`) formats. |
+| `repo_url` | `string` | Yes | Git repository URL. Supports HTTPS (`https://github.com/owner/repo.git`) and SSH (`git@github.com:owner/repo.git`) formats. |
 | `pr_number` | `integer` | Yes | Pull request number. Must be non-zero. |
 | `base_branch` | `string` | Yes | Target branch of the pull request. |
 | `head_branch` | `string` | Yes | Source branch of the pull request. |
@@ -34,7 +34,7 @@ curl -X POST http://localhost:8080/review \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Secret: your-webhook-secret" \
   -d '{
-    "repo_url": "git@github.com:owner/repo.git",
+    "repo_url": "https://github.com/owner/repo.git",
     "pr_number": 42,
     "base_branch": "main",
     "head_branch": "feature/awesome-feature"
@@ -102,7 +102,7 @@ curl "http://localhost:8080/reviews?status=completed&limit=10"
 ```
 
 ```bash
-curl "http://localhost:8080/reviews?repo=git@github.com:owner/repo.git&status=failed"
+curl "http://localhost:8080/reviews?repo=https://github.com/owner/repo.git&status=failed"
 ```
 
 ### Response Model
@@ -121,7 +121,7 @@ curl "http://localhost:8080/reviews?repo=git@github.com:owner/repo.git&status=fa
   "reviews": [
     {
       "run_id": "550e8400-e29b-41d4-a716-446655440000",
-      "repo": "git@github.com:owner/repo.git",
+      "repo": "https://github.com/owner/repo.git",
       "pr_number": 42,
       "base_branch": "main",
       "head_branch": "feature/awesome-feature",

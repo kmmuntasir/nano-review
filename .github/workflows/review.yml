@@ -17,7 +17,7 @@ jobs:
             -H "Content-Type: application/json" \
             -H "X-Webhook-Secret: ${NANO_REVIEW_SECRET}" \
             -d '{
-              "repo_url": "${{ github.event.pull_request.head.repo.ssh_url }}",
+              "repo_url": "${{ github.event.pull_request.head.repo.clone_url }}",
               "pr_number": ${{ github.event.pull_request.number }},
               "base_branch": "${{ github.base_ref }}",
               "head_branch": "${{ github.head_ref }}"

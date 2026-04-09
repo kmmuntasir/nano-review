@@ -22,7 +22,7 @@ docker-compose.staging.yml      # overlay: restart policy, resource limits
 ### 1. Prepare the Server
 
 ```bash
-git clone git@github.com:kmmuntasir/nano-review.git
+git clone https://github.com/kmmuntasir/nano-review.git
 cd nano-review
 ```
 

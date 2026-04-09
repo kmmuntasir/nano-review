@@ -12,7 +12,7 @@
 ### 1. Clone and Start
 
 ```bash
-git clone git@github.com:kmmuntasir/nano-review.git
+git clone https://github.com/kmmuntasir/nano-review.git
 cd nano-review
 cp .env.example .env
 # Edit .env with your values (see below)
@@ -20,7 +20,7 @@ docker compose up --build
 ```
 
 This uses `docker-compose.yml` — the base dev configuration with:
-- Multi-stage build: Go builder → Ubuntu runtime with Claude Code CLI, git, curl, openssh-client
+- Multi-stage build: Go builder → Ubuntu runtime with Claude Code CLI, git, curl
 - Port mapping (`${PORT:-8080}:8080`)
 - `.env` file loaded automatically
 - `review-logs` named volume at `/app/logs`
@@ -82,7 +82,7 @@ curl -X POST http://localhost:8080/review \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Secret: dev-secret-abc123" \
   -d '{
-    "repo_url": "git@github.com:owner/repo.git",
+    "repo_url": "https://github.com/owner/repo.git",
     "pr_number": 42,
     "base_branch": "main",
     "head_branch": "feature/test-pr"
@@ -109,7 +109,7 @@ Initiates an asynchronous PR review.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `repo_url` | string | yes | SSH clone URL of the repo |
+| `repo_url` | string | yes | HTTPS clone URL of the repo |
 | `pr_number` | int | yes | PR number to review |
 | `base_branch` | string | yes | Base branch of the PR |
 | `head_branch` | string | yes | Head branch of the PR |

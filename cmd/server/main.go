@@ -209,6 +209,7 @@ func main() {
 	}
 
 	webhookSecret := os.Getenv("WEBHOOK_SECRET")
+	githubPat := os.Getenv("GITHUB_PAT")
 	claudePath := os.Getenv("CLAUDE_CODE_PATH")
 	if claudePath == "" {
 		claudePath = "claude"
@@ -261,7 +262,7 @@ func main() {
 	defer store.Close()
 	slog.Info("database initialized", "path", dbPath)
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, "git", claudePath, model, mcpConfigPath, maxReviewDuration, maxRetries)
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))

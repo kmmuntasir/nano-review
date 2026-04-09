@@ -78,7 +78,7 @@ Optional: `PORT` (8080), `CLAUDE_CODE_PATH`, `MAX_TURNS` (30), `ANTHROPIC_BASE_U
 
 ## Docker
 
-Multi-stage build: Go builder → Ubuntu runtime with `git`, `curl`, `openssh-client`, Claude Code CLI.
+Multi-stage build: Go builder → Ubuntu runtime with `git`, `curl`, Claude Code CLI.
 Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 Log volume: `review-logs:/app/logs` with lumberjack rotation (10MB, 7-day retention).
 Data volume: `review-data:/app/data` for SQLite database (review history).

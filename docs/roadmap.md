@@ -66,7 +66,7 @@ The webhook payload should include `head_sha` to avoid an extra API call:
 
 ```json
 {
-  "repo_url": "git@github.com:owner/repo.git",
+  "repo_url": "https://github.com/owner/repo.git",
   "pr_number": 42,
   "base_branch": "main",
   "head_branch": "feature/add-auth",

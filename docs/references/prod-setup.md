@@ -23,7 +23,7 @@ docker-compose.prod.yml         # overlay: restart always, resource limits, heal
 ### 1. Prepare the Server
 
 ```bash
-git clone git@github.com:kmmuntasir/nano-review.git --depth 1
+git clone https://github.com/kmmuntasir/nano-review.git --depth 1
 cd nano-review
 ```
 
@@ -81,7 +81,7 @@ curl -X POST http://localhost:8080/review \
   -H "Content-Type: application/json" \
   -H "X-Webhook-Secret: <your-secret>" \
   -d '{
-    "repo_url": "git@github.com:kmmuntasir/nano-review.git",
+    "repo_url": "https://github.com/kmmuntasir/nano-review.git",
     "pr_number": 1,
     "base_branch": "main",
     "head_branch": "main"
@@ -153,7 +153,7 @@ Then deploy `.github/workflows/review.yml` in the target repo.
 - [ ] GitHub PAT has only `repo` scope, no admin or org permissions
 - [ ] Claude Code runs inside Docker with `--dangerously-skip-permissions` (review [SKILL.md](../../config/.claude/skills/pr-review/SKILL.md) for trust boundary)
 - [ ] Temp directories are force-deleted after each review (`defer os.RemoveAll`)
-- [ ] Server does not expose git credentials or API keys in logs
+- [ ] Git clone URLs with PAT tokens are never written to disk or logged
 - [ ] Reverse proxy enforces TLS 1.2+
 
 ## Monitoring
@@ -215,7 +215,7 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down -v
 
 ### Credential Rotation
 
-1. Generate new secrets/keys
+1. Generate new secrets
 2. Update `.env` on the server
 3. Update GitHub Action secrets in target repo
 4. Restart: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
