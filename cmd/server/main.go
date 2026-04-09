@@ -21,7 +21,7 @@ import (
 	"github.com/kmmuntasir/nano-review/internal/storage"
 )
 
-//go:embed all:web
+//go:embed all:../../web
 var webFS embed.FS
 
 // claudeEnvConfig holds environment variables passed through to the Claude Code CLI.
