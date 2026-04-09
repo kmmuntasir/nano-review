@@ -503,6 +503,17 @@
             font-family: "SF Mono", "Fira Code", monospace;
         }
 
+        .stream-block__summary {
+            font-size: 12px;
+            font-weight: 400;
+            color: var(--text-secondary);
+            font-family: "SF Mono", "Fira Code", monospace;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 400px;
+        }
+
         .stream-block__status {
             margin-left: auto;
             font-size: 11px;
@@ -944,10 +955,53 @@
             switch(obj.type) {
                 case "system": return this._parseSystem(obj);
                 case "stream_event": return this._parseStreamEvent(obj);
+                case "assistant": return this._parseAssistant(obj);
                 case "user": return this._parseUser(obj);
                 case "result": return this._parseResult(obj);
                 default: return { type: "RAW", data: JSON.stringify(obj) };
             }
+        };
+
+        StreamParser.prototype._parseAssistant = function(obj) {
+            var message = obj.message;
+            if (!message || !message.content) return null;
+            var items = Array.isArray(message.content) ? message.content : [message.content];
+            var commands = [];
+            for (var i = 0; i < items.length; i++) {
+                var item = items[i];
+                // Skip blocks already created by stream_event deltas
+                if (this.blocks[i]) continue;
+                var blockType = item.type;
+                if (blockType === "thinking") {
+                    var text = item.thinking || "";
+                    this.blocks[i] = { type: "thinking", accumulated: text, name: "", toolUseId: "" };
+                    commands.push({ type: "BLOCK_START", data: { index: i, blockType: "thinking", name: "" } });
+                    if (text) {
+                        commands.push({ type: "BLOCK_DELTA", data: { index: i, blockType: "thinking", text: text } });
+                        commands.push({ type: "BLOCK_END", data: { index: i, blockType: "thinking", fullText: text, name: "", toolUseId: "" } });
+                    }
+                } else if (blockType === "text") {
+                    var text = item.text || "";
+                    this.blocks[i] = { type: "text", accumulated: text, name: "", toolUseId: "" };
+                    commands.push({ type: "BLOCK_START", data: { index: i, blockType: "text", name: "" } });
+                    if (text) {
+                        commands.push({ type: "BLOCK_DELTA", data: { index: i, blockType: "text", text: text } });
+                        commands.push({ type: "BLOCK_END", data: { index: i, blockType: "text", fullText: text, name: "", toolUseId: "" } });
+                    }
+                } else if (blockType === "tool_use") {
+                    var name = item.name || "";
+                    var toolUseId = item.id || "";
+                    var input = typeof item.input === "string" ? item.input : JSON.stringify(item.input || {});
+                    this.blocks[i] = { type: "tool_use", accumulated: input, name: name, toolUseId: toolUseId };
+                    if (toolUseId) this.toolUseMap[toolUseId] = i;
+                    commands.push({ type: "BLOCK_START", data: { index: i, blockType: "tool_use", name: name, input: input } });
+                    if (input) {
+                        commands.push({ type: "BLOCK_DELTA", data: { index: i, blockType: "tool_use", text: input } });
+                        commands.push({ type: "BLOCK_END", data: { index: i, blockType: "tool_use", fullText: input, name: name, toolUseId: toolUseId } });
+                    }
+                }
+            }
+            return commands.length === 1 ? commands[0] : (commands.length > 1 ? commands : null);
         };
 
         StreamParser.prototype._parseSystem = function(obj) {
@@ -1156,6 +1210,27 @@
             this.metaElement = el;
         };
 
+        function getToolSummary(name, input) {
+            if (!input) return "";
+            try {
+                var parsed = typeof input === "string" ? JSON.parse(input) : input;
+            } catch(e) { return ""; }
+            switch(name) {
+                case "Bash":
+                    var cmd = parsed.command || "";
+                    var firstLine = cmd.split("\n")[0];
+                    return esc(firstLine);
+                case "Glob":
+                    return esc(parsed.pattern || "");
+                case "Grep":
+                    return esc(parsed.pattern || "");
+                case "Read":
+                    return esc(parsed.file_path || "");
+                default:
+                    return "";
+            }
+        }
+
         StreamRenderer.prototype._renderBlockStart = function(data) {
             var self = this;
             var idx = data.index;
@@ -1183,16 +1258,23 @@
                 wrapper.appendChild(header);
                 wrapper.appendChild(body);
             } else if (data.blockType === "tool_use") {
+                var isReadOnly = (data.name === "Read");
                 var header = document.createElement("div");
-                header.className = "stream-block__header";
+                header.className = "stream-block__header" + (isReadOnly ? " is-collapsed" : "");
+                if (isReadOnly) header.style.cursor = "default";
                 var cat = getToolCategory(data.name);
                 var icon = TOOL_ICONS[cat] || TOOL_ICONS.tool;
+                var summary = getToolSummary(data.name, data.input);
+                var summaryHtml = summary ? '<span class="stream-block__summary">' + summary + '</span>' : '';
                 header.innerHTML = '<span class="stream-block__chevron"></span>' +
                     '<span class="stream-block__badge">' + icon + ' ' + esc(data.name || "tool") + '</span>' +
+                    summaryHtml +
                     '<span class="stream-block__status"><span class="stream-block__status-dot"></span>Running</span>';
                 var body = document.createElement("div");
-                body.className = "stream-block__body is-hidden";
-                this._makeCollapsible(header, body);
+                body.className = "stream-block__body" + (isReadOnly ? " is-hidden" : " is-hidden");
+                if (!isReadOnly) {
+                    this._makeCollapsible(header, body);
+                }
                 wrapper.appendChild(header);
                 wrapper.appendChild(body);
             }
@@ -1235,16 +1317,15 @@
                 var body = el.querySelector(".stream-block__body");
                 if (!body) return;
                 var acc = this.parser.blocks[data.index].accumulated;
+                var name = this.parser.blocks[data.index].name;
                 // Remove old input if present
                 var oldPre = body.querySelector(".stream-tool-input");
                 if (oldPre) oldPre.remove();
                 var pre = document.createElement("pre");
                 pre.className = "stream-tool-input";
-                try {
-                    pre.textContent = JSON.stringify(JSON.parse(acc), null, 2);
-                } catch(e) {
-                    pre.textContent = acc;
-                }
+                // Render a smarter summary for known tools
+                var content = this._formatToolInput(name, acc);
+                pre.textContent = content;
                 body.appendChild(pre);
             }
         };
@@ -1268,6 +1349,21 @@
                 var statusEl = el.querySelector(".stream-block__status");
                 if (statusEl && !statusEl.querySelector(".stream-block__status-dot--success") && !statusEl.querySelector(".stream-block__status-dot--error")) {
                     statusEl.innerHTML = '<span class="stream-block__status-dot"></span>Waiting for result';
+                }
+                // Add summary to header if not already present (stream_event blocks may not have input at BLOCK_START)
+                var summaryEl = el.querySelector(".stream-block__summary");
+                if (!summaryEl) {
+                    var name = data.name || "";
+                    var summary = getToolSummary(name, data.fullText);
+                    if (summary) {
+                        var badge = el.querySelector(".stream-block__badge");
+                        if (badge) {
+                            var span = document.createElement("span");
+                            span.className = "stream-block__summary";
+                            span.textContent = summary;
+                            badge.insertAdjacentElement("afterend", span);
+                        }
+                    }
                 }
             }
         };
@@ -1313,6 +1409,11 @@
             }
 
             el.appendChild(resultEl);
+            // Move tool result inside the collapsible body so it's revealed on expand
+            var body = el.querySelector(".stream-block__body");
+            if (body) {
+                body.appendChild(resultEl);
+            }
         };
 
         StreamRenderer.prototype._renderResult = function(data) {
@@ -1332,6 +1433,27 @@
             el.innerHTML = html;
             this.contentEl.appendChild(el);
             this.resultElement = el;
+        };
+
+        StreamRenderer.prototype._formatToolInput = function(name, rawInput) {
+            try {
+                var parsed = typeof rawInput === "string" ? JSON.parse(rawInput) : rawInput;
+            } catch(e) { return rawInput; }
+            switch(name) {
+                case "Bash":
+                    return "$ " + (parsed.command || JSON.stringify(parsed, null, 2));
+                case "Glob":
+                    return "Pattern: " + (parsed.pattern || "") + (parsed.path ? "\nPath: " + parsed.path : "");
+                case "Grep":
+                    var s = "Pattern: " + (parsed.pattern || "");
+                    if (parsed.path) s += "\nPath: " + parsed.path;
+                    if (parsed.output_mode) s += "\nOutput mode: " + parsed.output_mode;
+                    return s;
+                case "Read":
+                    return (parsed.file_path || "") + (parsed.offset ? "\nOffset: " + parsed.offset : "") + (parsed.limit ? "\nLimit: " + parsed.limit : "");
+                default:
+                    return JSON.stringify(parsed, null, 2);
+            }
         };
 
         StreamRenderer.prototype._renderRaw = function(data) {
