@@ -358,6 +358,41 @@
 
         @keyframes spin { to { transform: rotate(360deg); } }
 
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .streaming-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--status-running);
+            margin-right: 6px;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+
+        .scroll-bottom-btn {
+            position: absolute;
+            bottom: 12px;
+            right: 12px;
+            background: var(--accent);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 32px;
+            height: 32px;
+            cursor: pointer;
+            font-size: 16px;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .output-body { position: relative; }
+
         /* Responsive */
         @media (max-width: 768px) {
             .stats-grid { grid-template-columns: repeat(2, 1fr); }
@@ -388,6 +423,7 @@
 
         var app = document.getElementById("app");
         var pollTimer = null;
+        var eventSource = null;
 
         // --- Theme ---
         var themeBtn = document.getElementById("theme-toggle");
@@ -488,6 +524,7 @@
         // --- Router ---
         function route() {
             stopPolling();
+            stopEventSource();
             var hash = location.hash || "#/dashboard";
             updateNav(hash);
 
@@ -515,6 +552,13 @@
             if (pollTimer) {
                 clearInterval(pollTimer);
                 pollTimer = null;
+            }
+        }
+
+        function stopEventSource() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
             }
         }
 
@@ -654,29 +698,117 @@
         // --- Review detail view ---
         function renderReviewDetail(runId) {
             app.innerHTML = '<div class="loading">Loading review</div>';
+            stopEventSource();
+            stopPolling();
 
-            function load() {
-                api.getReview(runId).then(function(r) {
-                    if (!r) {
-                        app.innerHTML = '<div class="empty">Review not found</div>';
-                        stopPolling();
-                        return;
-                    }
+            api.getReview(runId).then(function(r) {
+                if (!r) {
+                    app.innerHTML = '<div class="empty">Review not found</div>';
+                    return;
+                }
+                if (r.status === "pending" || r.status === "running") {
+                    renderStreamingView(runId, r);
+                } else {
                     renderDetailContent(r);
-                    if (r.status === "pending" || r.status === "running") {
-                        // Auto-refresh while in-progress
-                        if (!pollTimer) {
-                            pollTimer = setInterval(function() { load(); }, 5000);
-                        }
-                    } else {
-                        stopPolling();
+                }
+            }).catch(function() {
+                app.innerHTML = '<div class="empty">Failed to load review</div>';
+            });
+        }
+
+        function renderStreamingView(runId, review) {
+            var html = '<div class="detail-header">' +
+                '<button class="btn" onclick="location.hash=\'#/reviews\'">&#8592; Back</button>' +
+                '<h1>' + esc(truncate(review.run_id, 12)) + '</h1>' +
+                '<span class="' + badgeClass(review.status) + '">' + esc(review.status) + '</span>' +
+                '</div>';
+
+            html += '<div class="meta-grid">' +
+                metaCard("Repo", basename(review.repo)) +
+                metaCard("PR Number", "#" + (review.pr_number || "-")) +
+                metaCard("Status", review.status) +
+                metaCard("Base Branch", review.base_branch || "-") +
+                metaCard("Head Branch", review.head_branch || "-") +
+                metaCard("Created", formatDate(review.created_at)) +
+                '</div>';
+
+            html += '<div class="output-section">' +
+                '<div class="output-header">' +
+                '<span><span class="streaming-indicator"></span>Claude Output (live)</span>' +
+                '</div>' +
+                '<div class="output-body" id="stream-output" style="max-height:600px;overflow:auto">' +
+                '<pre id="stream-pre">Waiting for output...</pre>' +
+                '<button class="scroll-bottom-btn" id="scroll-bottom" onclick="document.getElementById(\'stream-output\').scrollTop=999999">&#8595;</button>' +
+                '</div></div>';
+
+            app.innerHTML = html;
+
+            var pre = document.getElementById("stream-pre");
+            var container = document.getElementById("stream-output");
+            var scrollBtn = document.getElementById("scroll-bottom");
+            var isAutoScroll = true;
+            var rawLines = [];
+
+            // Detect if user scrolled up
+            container.addEventListener("scroll", function() {
+                var atBottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
+                if (atBottom !== isAutoScroll) {
+                    isAutoScroll = atBottom;
+                    scrollBtn.style.display = atBottom ? "none" : "flex";
+                }
+            });
+
+            function appendStreamData(data) {
+                var lines = data.split("\n");
+                lines.forEach(function(line) {
+                    if (line.trim() === "") return;
+                    try {
+                        var obj = JSON.parse(line);
+                        rawLines.push(obj);
+                    } catch(e) {
+                        rawLines.push({ raw: line });
                     }
-                }).catch(function() {
-                    app.innerHTML = '<div class="empty">Failed to load review</div>';
                 });
+                // Render as formatted JSON
+                pre.textContent = rawLines.map(function(obj) {
+                    return JSON.stringify(obj, null, 2);
+                }).join("\n");
+                if (isAutoScroll) {
+                    container.scrollTop = container.scrollHeight;
+                }
             }
 
-            load();
+            eventSource = new EventSource("/reviews/" + runId + "/stream");
+
+            eventSource.addEventListener("output", function(e) {
+                appendStreamData(e.data);
+            });
+
+            eventSource.addEventListener("done", function() {
+                stopEventSource();
+                // Fetch final review data and show static view
+                api.getReview(runId).then(function(r) {
+                    if (r) renderDetailContent(r);
+                }).catch(function() {
+                    pre.textContent += "\n\n[Review completed. Refresh for full output.]";
+                });
+            });
+
+            eventSource.onerror = function() {
+                stopEventSource();
+                pre.textContent += "\n\n[Stream connection lost. Falling back to polling...]";
+                // Fall back to polling
+                if (!pollTimer) {
+                    pollTimer = setInterval(function() {
+                        api.getReview(runId).then(function(r) {
+                            if (r && r.status !== "pending" && r.status !== "running") {
+                                stopPolling();
+                                renderDetailContent(r);
+                            }
+                        });
+                    }, 5000);
+                }
+            };
         }
 
         function renderDetailContent(r) {

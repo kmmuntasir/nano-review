@@ -3,6 +3,7 @@ package reviewer
 import (
 	"context"
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -50,6 +51,24 @@ func (m *mockClaudeRunner) Run(_ context.Context, dir string, args ...string) (s
 		return r.output, r.exitCode, r.err
 	}
 	return m.output, m.exitCode, m.err
+}
+
+func (m *mockClaudeRunner) RunStreaming(_ context.Context, dir string, streamWriter io.Writer, args ...string) (int, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.calls = append(m.calls, mockCall{Dir: dir, Args: args})
+	var output string
+	if len(m.perCall) > 0 {
+		r := m.perCall[0]
+		m.perCall = m.perCall[1:]
+		output = r.output
+		return r.exitCode, r.err
+	}
+	output = m.output
+	if streamWriter != nil && output != "" {
+		streamWriter.Write([]byte(output))
+	}
+	return m.exitCode, m.err
 }
 
 func (m *mockClaudeRunner) getCalls() []mockCall {
@@ -478,6 +497,17 @@ func (m *blockingMockClaudeRunner) Run(ctx context.Context, dir string, args ...
 		return "blocked", 1, ctx.Err()
 	}
 	return m.mockClaudeRunner.Run(ctx, dir, args...)
+}
+
+func (m *blockingMockClaudeRunner) RunStreaming(ctx context.Context, dir string, streamWriter io.Writer, args ...string) (int, error) {
+	if m.onRun != nil {
+		m.onRun()
+	}
+	if m.blockOnContext {
+		<-ctx.Done()
+		return 1, ctx.Err()
+	}
+	return m.mockClaudeRunner.RunStreaming(ctx, dir, streamWriter, args...)
 }
 
 func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {

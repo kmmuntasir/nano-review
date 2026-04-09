@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -29,6 +31,7 @@ var transientExitCodes = map[int]bool{
 // ClaudeRunner abstracts execution of the Claude Code CLI for testability.
 type ClaudeRunner interface {
 	Run(ctx context.Context, dir string, args ...string) (output string, exitCode int, err error)
+	RunStreaming(ctx context.Context, dir string, streamWriter io.Writer, args ...string) (exitCode int, err error)
 }
 
 // Logger provides structured logging capabilities.
@@ -52,6 +55,7 @@ type Worker struct {
 	mcpConfigPath     string
 	maxReviewDuration time.Duration
 	maxRetries        int
+	streamPaths       sync.Map // runID (string) -> .stream.json absolute path (string)
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
@@ -74,6 +78,27 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gi
 		maxReviewDuration: maxReviewDuration,
 		maxRetries:        maxRetries,
 	}
+}
+
+// GetStreamPath returns the path to the .stream.json file for a review run.
+func (w *Worker) GetStreamPath(runID string) (string, bool) {
+	v, ok := w.streamPaths.Load(runID)
+	if !ok {
+		return "", false
+	}
+	return v.(string), true
+}
+
+// GetReviewStatus returns the current status of a review run.
+func (w *Worker) GetReviewStatus(ctx context.Context, runID string) (storage.ReviewStatus, bool) {
+	if w.store == nil {
+		return "", false
+	}
+	r, err := w.store.GetReview(ctx, runID)
+	if err != nil {
+		return "", false
+	}
+	return r.Status, true
 }
 
 // StartReview validates the payload, generates a unique run ID, and launches
@@ -137,7 +162,8 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 
 	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s). The repo is cloned at ./%s/", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch, repo)
 
-	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions"}
+	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions",
+		"--output-format", "stream-json", "--verbose", "--include-partial-messages"}
 	if w.model != "" {
 		args = append(args, "--model", w.model)
 	}
@@ -145,11 +171,23 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		args = append(args, "--mcp-config", w.mcpConfigPath, "--strict-mcp-config")
 	}
 
+	// Set up streaming output file so the SSE endpoint can tail it.
+	streamPath := streamFilePath(runID, p)
+	w.streamPaths.Store(runID, streamPath)
+
 	var output string
 	var exitCode int
 
 	for attempt := range w.maxRetries + 1 {
-		output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
+		accum, accumErr := newStreamAccumulator(streamPath)
+		if accumErr != nil {
+			logger.Error("failed to create stream accumulator, using non-streaming mode", "error", accumErr)
+			output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
+		} else {
+			defer accum.Close()
+			exitCode, err = w.claude.RunStreaming(reviewCtx, dir, accum, args...)
+			output = accum.Text()
+		}
 
 		// Always persist output for debugging, even on retry
 		if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {

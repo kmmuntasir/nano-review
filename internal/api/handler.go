@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
+	"time"
 
 	"github.com/kmmuntasir/nano-review/internal/storage"
 )
@@ -74,6 +78,22 @@ type ReviewGetter interface {
 	GetMetrics(ctx context.Context) (*storage.Metrics, error)
 }
 
+// StreamPathGetter provides the path to a review's streaming output file
+// and the ability to check review status.
+type StreamPathGetter interface {
+	GetStreamPath(runID string) (string, bool)
+	GetReviewStatus(ctx context.Context, runID string) (storage.ReviewStatus, bool)
+}
+
+// isTerminalStatus returns true if the review is in a final state.
+func isTerminalStatus(s storage.ReviewStatus) bool {
+	switch s {
+	case storage.StatusCompleted, storage.StatusFailed, storage.StatusTimedOut, storage.StatusCancelled:
+		return true
+	}
+	return false
+}
+
 // HandleListReviews returns an http.HandlerFunc that lists reviews with optional filters.
 // Query params: repo, status, limit, offset
 func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
@@ -105,7 +125,8 @@ func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
 }
 
 // HandleGetReview returns an http.HandlerFunc that retrieves a single review by run_id.
-func HandleGetReview(getter ReviewGetter) http.HandlerFunc {
+// It optionally includes streaming output when ?include_stream=true is set.
+func HandleGetReview(getter ReviewGetter, pathGetter StreamPathGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		runID := r.PathValue("run_id")
 		if runID == "" {
@@ -124,6 +145,22 @@ func HandleGetReview(getter ReviewGetter) http.HandlerFunc {
 			return
 		}
 
+		if r.URL.Query().Get("include_stream") == "true" && pathGetter != nil {
+			if streamPath, ok := pathGetter.GetStreamPath(runID); ok {
+				if data, readErr := os.ReadFile(streamPath); readErr == nil {
+					type reviewWithStream struct {
+						*storage.ReviewRecord
+						StreamingOutput string `json:"streaming_output,omitempty"`
+					}
+					writeJSON(w, http.StatusOK, reviewWithStream{
+						ReviewRecord:    review,
+						StreamingOutput: string(data),
+					})
+					return
+				}
+			}
+		}
+
 		writeJSON(w, http.StatusOK, review)
 	}
 }
@@ -140,4 +177,129 @@ func HandleGetMetrics(getter ReviewGetter) http.HandlerFunc {
 
 		writeJSON(w, http.StatusOK, metrics)
 	}
+}
+
+// HandleStreamReview returns an http.HandlerFunc that streams Claude Code output
+// via Server-Sent Events (SSE). For in-progress reviews it polls the .stream.json
+// file and sends new lines. For completed reviews it sends the full file and closes.
+func HandleStreamReview(getter ReviewGetter, pathGetter StreamPathGetter) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		runID := r.PathValue("run_id")
+		if runID == "" {
+			http.Error(w, `{"error":"run_id is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			http.Error(w, "streaming not supported", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		ctx := r.Context()
+
+		// For completed reviews with no stream file, send stored output and close.
+		status, hasStatus := pathGetter.GetReviewStatus(ctx, runID)
+		if !hasStatus {
+			writeSSEEvent(w, flusher, "error", `{"error":"review not found"}`)
+			return
+		}
+		if isTerminalStatus(status) {
+			streamPath, hasPath := pathGetter.GetStreamPath(runID)
+			if hasPath {
+				if data, err := os.ReadFile(streamPath); err == nil && len(data) > 0 {
+					writeSSEEvent(w, flusher, "output", string(data))
+				}
+			} else {
+				// Old review without stream file — send stored output.
+				if review, err := getter.GetReview(ctx, runID); err == nil && review.ClaudeOutput != "" {
+					writeSSEEvent(w, flusher, "output", review.ClaudeOutput)
+				}
+			}
+			writeSSEEvent(w, flusher, "done", "")
+			return
+		}
+
+		// In-progress review: poll the stream file.
+		ticker := time.NewTicker(500 * time.Millisecond)
+		heartbeat := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		defer heartbeat.Stop()
+
+		var lastOffset int64
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				streamPath, hasPath := pathGetter.GetStreamPath(runID)
+				if !hasPath {
+					continue
+				}
+
+				info, err := os.Stat(streamPath)
+				if err != nil {
+					continue
+				}
+
+				if info.Size() > lastOffset {
+					f, err := os.Open(streamPath)
+					if err != nil {
+						continue
+					}
+					f.Seek(lastOffset, io.SeekStart)
+					newBytes, err := io.ReadAll(f)
+					f.Close()
+					if err != nil {
+						continue
+					}
+					if len(newBytes) > 0 {
+						writeSSEEvent(w, flusher, "output", string(newBytes))
+						lastOffset += int64(len(newBytes))
+					}
+				}
+
+				// Check if the review has finished.
+				if currentStatus, ok := pathGetter.GetReviewStatus(ctx, runID); ok && isTerminalStatus(currentStatus) {
+					// Small delay to let the final bytes flush.
+					time.Sleep(200 * time.Millisecond)
+					streamPath, hasPath := pathGetter.GetStreamPath(runID)
+					if hasPath {
+						f, err := os.Open(streamPath)
+						if err == nil {
+							f.Seek(lastOffset, io.SeekStart)
+							finalBytes, _ := io.ReadAll(f)
+							f.Close()
+							if len(finalBytes) > 0 {
+								writeSSEEvent(w, flusher, "output", string(finalBytes))
+							}
+						}
+					}
+					writeSSEEvent(w, flusher, "done", "")
+					return
+				}
+
+			case <-heartbeat.C:
+				writeSSEComment(w, flusher, "keepalive")
+			}
+		}
+	}
+}
+
+// writeSSEEvent writes a single SSE event to the writer and flushes.
+func writeSSEEvent(w io.Writer, flusher http.Flusher, event, data string) {
+	fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event, data)
+	flusher.Flush()
+}
+
+// writeSSEComment writes an SSE comment (heartbeat) to the writer and flushes.
+func writeSSEComment(w io.Writer, flusher http.Flusher, comment string) {
+	fmt.Fprintf(w, ": %s\n\n", comment)
+	flusher.Flush()
 }

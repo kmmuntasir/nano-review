@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -59,6 +62,12 @@ type claudeCLI struct {
 }
 
 func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string, int, error) {
+	var buf bytes.Buffer
+	exitCode, err := c.RunStreaming(ctx, dir, &buf, args...)
+	return buf.String(), exitCode, err
+}
+
+func (c *claudeCLI) RunStreaming(ctx context.Context, dir string, streamWriter io.Writer, args ...string) (int, error) {
 	cmd := exec.CommandContext(ctx, args[0], args[1:]...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
@@ -92,26 +101,55 @@ func (c *claudeCLI) Run(ctx context.Context, dir string, args ...string) (string
 	}
 	cmd.Env = env
 
-	out, err := cmd.CombinedOutput()
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return 1, fmt.Errorf("create stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return 1, fmt.Errorf("create stderr pipe: %w", err)
+	}
 
-	// Kill the entire process group to clean up any child processes
-	// (shell, git, etc.) spawned by Claude Code. Safe to call even if
-	// the process already exited — ESRCH is ignored.
+	if err := cmd.Start(); err != nil {
+		return 1, fmt.Errorf("start claude process: %w", err)
+	}
+
+	// Drain stdout line-by-line and write to streamWriter.
+	scanner := bufio.NewScanner(stdout)
+	scanner.Buffer(make([]byte, 0, 512*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if line == "" {
+			continue
+		}
+		streamWriter.Write([]byte(line + "\n"))
+	}
+
+	// Drain stderr for diagnostics.
+	stderrBytes, _ := io.ReadAll(stderr)
+
+	// Kill the entire process group to clean up any child processes.
 	if cmd.Process != nil {
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 
+	waitErr := cmd.Wait()
+
 	exitCode := 0
-	if err != nil {
+	if waitErr != nil {
 		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
+		if errors.As(waitErr, &exitErr) {
 			exitCode = exitErr.ExitCode()
 		} else {
-			return string(out), 1, err
+			return 1, waitErr
 		}
 	}
 
-	return string(out), exitCode, nil
+	if len(stderrBytes) > 0 {
+		slog.Error("claude stderr output", "output", string(stderrBytes))
+	}
+
+	return exitCode, nil
 }
 
 // claudeMCPConfigPath is the path to the MCP config file passed to Claude Code
@@ -228,7 +266,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
 	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
-	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
+	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store, worker))
+	mux.HandleFunc("GET /reviews/{run_id}/stream", api.HandleStreamReview(store, worker))
 	mux.HandleFunc("GET /metrics", api.HandleGetMetrics(store))
 
 	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(web.FS))))

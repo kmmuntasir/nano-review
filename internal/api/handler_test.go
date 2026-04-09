@@ -4,8 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -217,6 +220,25 @@ func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, erro
 }
 
 // ---------------------------------------------------------------------------
+// Mock StreamPathGetter
+// ---------------------------------------------------------------------------
+
+type mockStreamPathGetter struct {
+	streamPath string
+	status     storage.ReviewStatus
+	hasPath    bool
+	hasStatus  bool
+}
+
+func (m *mockStreamPathGetter) GetStreamPath(_ string) (string, bool) {
+	return m.streamPath, m.hasPath
+}
+
+func (m *mockStreamPathGetter) GetReviewStatus(_ context.Context, _ string) (storage.ReviewStatus, bool) {
+	return m.status, m.hasStatus
+}
+
+// ---------------------------------------------------------------------------
 // HandleListReviews tests
 // ---------------------------------------------------------------------------
 
@@ -286,7 +308,7 @@ func TestHandleGetReview_Success(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
 	w := httptest.NewRecorder()
@@ -313,7 +335,7 @@ func TestHandleGetReview_NotFound(t *testing.T) {
 	getter := &mockReviewGetter{}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/nonexistent", nil)
 	w := httptest.NewRecorder()
@@ -334,7 +356,7 @@ func TestHandleGetReview_StorageError(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
 	w := httptest.NewRecorder()
@@ -406,5 +428,171 @@ func TestHandleGetMetrics_StorageError(t *testing.T) {
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HandleStreamReview tests
+// ---------------------------------------------------------------------------
+
+func TestHandleStreamReview_CompletedReviewWithStreamFile(t *testing.T) {
+	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
+	if err := os.WriteFile(streamFile, []byte(`{"type":"message","content":"hello"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	getter := &mockReviewGetter{
+		review: &storage.ReviewRecord{
+			RunID:  "abc-123",
+			Status: storage.StatusCompleted,
+		},
+	}
+	pathGetter := &mockStreamPathGetter{
+		streamPath: streamFile,
+		status:     storage.StatusCompleted,
+		hasPath:    true,
+		hasStatus:  true,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bodyStr := string(body)
+
+	if !strings.Contains(bodyStr, "event: output") {
+		t.Errorf("expected 'output' event, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "event: done") {
+		t.Errorf("expected 'done' event, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, `{"type":"message","content":"hello"}`) {
+		t.Errorf("expected stream file content, got: %s", bodyStr)
+	}
+}
+
+func TestHandleStreamReview_CompletedReviewNoStreamFile(t *testing.T) {
+	getter := &mockReviewGetter{
+		review: &storage.ReviewRecord{
+			RunID:        "abc-123",
+			Status:       storage.StatusCompleted,
+			ClaudeOutput: "stored output text",
+		},
+	}
+	pathGetter := &mockStreamPathGetter{
+		status:    storage.StatusCompleted,
+		hasPath:   false,
+		hasStatus: true,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	bodyStr := string(body)
+
+	if !strings.Contains(bodyStr, "stored output text") {
+		t.Errorf("expected stored output for review without stream file, got: %s", bodyStr)
+	}
+	if !strings.Contains(bodyStr, "event: done") {
+		t.Errorf("expected 'done' event, got: %s", bodyStr)
+	}
+}
+
+func TestHandleStreamReview_ReviewNotFound(t *testing.T) {
+	getter := &mockReviewGetter{}
+	pathGetter := &mockStreamPathGetter{
+		hasPath:   false,
+		hasStatus: false,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
+
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/nonexistent/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "event: error") {
+		t.Errorf("expected 'error' event for unknown review, got: %s", string(body))
+	}
+}
+
+func TestHandleGetReview_IncludeStream(t *testing.T) {
+	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
+	if err := os.WriteFile(streamFile, []byte(`{"type":"result"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	getter := &mockReviewGetter{
+		review: &storage.ReviewRecord{
+			RunID:      "abc-123",
+			Repo:       "owner/repo.git",
+			PRNumber:   42,
+			Status:     storage.StatusCompleted,
+			CreatedAt:  time.Now(),
+		},
+	}
+	pathGetter := &mockStreamPathGetter{
+		streamPath: streamFile,
+		hasPath:    true,
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, pathGetter))
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123?include_stream=true", nil)
+	w := httptest.NewRecorder()
+	mux.ServeHTTP(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatal(err)
+	}
+	if result["streaming_output"] == nil {
+		t.Error("expected streaming_output field to be present")
 	}
 }
