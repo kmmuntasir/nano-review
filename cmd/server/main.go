@@ -267,19 +267,49 @@ func main() {
 
 	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
 
+	sessionSecret := os.Getenv("SESSION_SECRET")
+	if sessionSecret == "" {
+		sessionSecret = webhookSecret
+		slog.Warn("SESSION_SECRET not set, falling back to WEBHOOK_SECRET")
+	}
+
+	sessionMaxAge := 24.0
+	if v := os.Getenv("SESSION_MAX_AGE_HOURS"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
+			sessionMaxAge = f
+		} else {
+			slog.Error("invalid SESSION_MAX_AGE_HOURS, using default", "value", v, "error", err)
+		}
+	}
+
+	var cookieDomains []string
+	if d := os.Getenv("AUTH_COOKIE_DOMAIN"); d != "" {
+		cookieDomains = []string{d}
+	}
+
+	sessionMgr := auth.NewSessionManager([]byte(sessionSecret), sessionMaxAge, cookieDomains)
+
 	oauthCfg := &auth.OAuthConfig{
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		RedirectURL:  os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"),
+		SessionManager: sessionMgr,
 	}
 
 	mux := http.NewServeMux()
+
+	// Public routes — no auth required.
 	mux.HandleFunc("GET /auth/login", auth.HandleGoogleLogin(oauthCfg))
+	mux.HandleFunc("GET /auth/callback", auth.HandleOAuthCallback(oauthCfg))
+	mux.HandleFunc("GET /auth/logout", auth.HandleLogout(sessionMgr))
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
-	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
-	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
-	mux.HandleFunc("GET /ws", api.HandleWebSocket(hub))
-	mux.HandleFunc("GET /metrics", api.HandleGetMetrics(store))
+
+	// Protected routes — RequireAuth middleware (no-op when AUTH_ENABLED=false).
+	mux.Handle("GET /auth/me", sessionMgr.RequireAuth(auth.HandleSessionInfo(sessionMgr)))
+	mux.Handle("GET /reviews", sessionMgr.RequireAuth(api.HandleListReviews(store)))
+	mux.Handle("GET /reviews/{run_id}", sessionMgr.RequireAuth(api.HandleGetReview(store)))
+	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub)))
+	mux.Handle("GET /metrics", sessionMgr.RequireAuth(api.HandleGetMetrics(store)))
 
 	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(web.FS))))
 

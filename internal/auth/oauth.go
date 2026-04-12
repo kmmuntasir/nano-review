@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 
@@ -71,5 +73,95 @@ func HandleGoogleLogin(cfg *OAuthConfig) http.HandlerFunc {
 		slog.Info("redirecting to Google OAuth", "redirect_url", url)
 
 		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
+	}
+}
+
+// HandleOAuthCallback processes the OAuth callback from Google. It exchanges
+// the authorization code for tokens, fetches the user's profile from the
+// userinfo endpoint, creates a session token, and sets it as a cookie.
+func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		endpoint := cfg.OAuthEndpoint()
+		if endpoint == nil {
+			http.Error(w, `{"error":"OAuth is not configured"}`, http.StatusNotImplemented)
+			return
+		}
+
+		code := r.URL.Query().Get("code")
+		if code == "" {
+			http.Error(w, `{"error":"missing authorization code"}`, http.StatusBadRequest)
+			return
+		}
+
+		token, err := endpoint.Exchange(r.Context(), code)
+		if err != nil {
+			slog.Error("OAuth token exchange failed", "error", err)
+			http.Error(w, `{"error":"token exchange failed"}`, http.StatusBadGateway)
+			return
+		}
+
+		client := endpoint.Client(context.Background(), token)
+		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+		if err != nil {
+			slog.Error("failed to fetch user info", "error", err)
+			http.Error(w, `{"error":"failed to fetch user info"}`, http.StatusBadGateway)
+			return
+		}
+		defer resp.Body.Close()
+
+		var info struct {
+			ID      string `json:"id"`
+			Email   string `json:"email"`
+			Name    string `json:"name"`
+			Picture string `json:"picture"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+			slog.Error("failed to decode user info", "error", err)
+			http.Error(w, `{"error":"failed to decode user info"}`, http.StatusBadGateway)
+			return
+		}
+
+		slog.Info("user authenticated", "google_id", info.ID, "email", info.Email)
+
+		sessionToken := cfg.SessionManager.CreateToken(info.ID)
+		cfg.SessionManager.SetCookie(w, sessionToken)
+
+		http.Redirect(w, r, "/", http.StatusFound)
+	}
+}
+
+// HandleLogout clears the session cookie and redirects to the home page.
+func HandleLogout(sm *SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		sm.ClearCookie(w)
+		http.Redirect(w, r, "/", http.StatusFound)
+	}
+}
+
+// HandleSessionInfo returns the authenticated user's session info as JSON.
+// Requires a valid session cookie.
+func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, `{"error":"method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		user := UserFromContext(r.Context())
+		if user.ID == "" {
+			http.Error(w, `{"error":"not authenticated"}`, http.StatusUnauthorized)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{
+			"id":     user.ID,
+			"source": user.Source,
+		})
 	}
 }
