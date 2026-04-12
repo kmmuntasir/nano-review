@@ -15,26 +15,40 @@ Greenfield — documentation and development rules are in place, but no Go sourc
 
 ## Build & Development Commands
 
-> **All Go tooling (build, test, lint) must run inside the Docker container.** Host machines do not have Go installed. Use `docker compose exec` to run commands against the running dev container, or `docker compose run` for one-off commands.
+### First-Time Setup
+
+The project requires a `.env` file for Docker Compose. After cloning, copy the provided template:
 
 ```bash
-# Start the dev container
+cp .env.example .env
+```
+
+Then edit `.env` and fill in the required values (`WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`). The defaults work for local development.
+
+### Running Go Tooling
+
+> **All Go tooling (build, test, lint) must run inside the Docker container.** Host machines do not have Go installed.
+
+> **Important — Multi-stage build:** The Dockerfile uses a multi-stage build. The final runtime image (Stage 2) does **not** contain the Go toolchain — only the compiled binary, `git`, `curl`, and Claude Code CLI. This means `docker compose exec nano-review go ...` will **fail** against the running container. Go commands must target the **builder stage** instead, using `docker compose run` with the build target:
+
+```bash
+# Start the dev container (runtime image — no Go binary available)
 rtk docker compose up --build
 
-# Run commands inside the container:
-docker compose exec nano-review go build -o /nano-review ./cmd/server
+# Run Go commands against the builder stage (has full Go toolchain):
+docker compose run --rm nano-review go build -o /nano-review ./cmd/server
 
-docker compose exec nano-review go test -race ./...
-docker compose exec nano-review go test -race ./internal/api/
-docker compose exec nano-review go test -race -run TestValidatePayload ./internal/api/
-docker compose exec nano-review go test -v -cover ./...
-docker compose exec nano-review go test -coverprofile=coverage.out ./... && docker compose exec nano-review go tool cover -html=coverage.out
+docker compose run --rm nano-review go test -race ./...
+docker compose run --rm nano-review go test -race ./internal/api/
+docker compose run --rm nano-review go test -race -run TestValidatePayload ./internal/api/
+docker compose run --rm nano-review go test -v -cover ./...
+docker compose run --rm nano-review go test -coverprofile=coverage.out ./... && docker compose run --rm nano-review go tool cover -html=coverage.out
 
-docker compose exec nano-review go vet ./...
-docker compose exec nano-review go fmt ./...
+docker compose run --rm nano-review go vet ./...
+docker compose run --rm nano-review go fmt ./...
 
 # Integration tests
-docker compose exec nano-review go test -tags=integration ./...
+docker compose run --rm nano-review go test -tags=integration ./...
 ```
 
 ## Architecture
@@ -78,7 +92,9 @@ Optional: `PORT` (8080), `CLAUDE_CODE_PATH`, `MAX_TURNS` (30), `ANTHROPIC_BASE_U
 
 ## Docker
 
-Multi-stage build: Go builder → Ubuntu runtime with `git`, `curl`, Claude Code CLI.
+Multi-stage build: Go builder (`golang:1.23-bookworm`) → Ubuntu runtime with `git`, `curl`, Claude Code CLI.
+- The **builder stage** has the Go toolchain — use this for `go build`, `go test`, `go vet`, etc.
+- The **runtime stage** has only the compiled binary — no Go binary is available for running tests or building.
 Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 Log volume: `review-logs:/app/logs` with lumberjack rotation (10MB, 7-day retention).
 Data volume: `review-data:/app/data` for SQLite database (review history).
