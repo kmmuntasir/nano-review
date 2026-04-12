@@ -228,3 +228,8 @@ func (h *Hub) clientCount() int {
 	defer h.mu.RUnlock()
 	return len(h.clients)
 }
+
+// ClientCount returns the current number of connected WebSocket clients.
+func (h *Hub) ClientCount() int {
+	return h.clientCount()
+}

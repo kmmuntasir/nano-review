@@ -33,6 +33,10 @@ type OAuthConfig struct {
 
 	// SessionManager handles cookie-based session tokens.
 	SessionManager *SessionManager
+
+	// HTTPClient is an optional custom HTTP client used for token exchange
+	// and userinfo calls. When nil, http.DefaultClient is used.
+	HTTPClient *http.Client
 }
 
 // OAuthEndpoint returns the *oauth2.Config for Google OAuth2 flows.
@@ -116,14 +120,23 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 			return
 		}
 
-		token, err := endpoint.Exchange(r.Context(), code)
+		// Inject a custom HTTP client into the context if configured,
+		// so token exchange and userinfo calls can be intercepted in tests.
+		ctx := r.Context()
+		if cfg.HTTPClient != nil {
+			ctx = context.WithValue(ctx, oauth2.HTTPClient, cfg.HTTPClient)
+		}
+
+		token, err := endpoint.Exchange(ctx, code)
 		if err != nil {
 			slog.Error("OAuth token exchange failed", "error", err)
 			http.Error(w, `{"error":"token exchange failed"}`, http.StatusBadGateway)
 			return
 		}
 
-		client := endpoint.Client(context.Background(), token)
+		// Use the same context so the oauth2.Transport Base also picks up
+		// the injected HTTP client for the userinfo GET.
+		client := endpoint.Client(ctx, token)
 		resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
 		if err != nil {
 			slog.Error("failed to fetch user info", "error", err)
