@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -46,6 +47,46 @@ func (a *streamAccumulator) Close() error {
 // Text returns the accumulated raw bytes as a string.
 func (a *streamAccumulator) Text() string {
 	return a.buf.String()
+}
+
+// wsStreamWriter wraps a streamAccumulator and broadcasts each write to
+// WebSocket subscribers on the topic "run:<runID>".
+type wsStreamWriter struct {
+	accum      *streamAccumulator
+	broadcaster Broadcaster
+	runID      string
+}
+
+func newWSStreamWriter(accum *streamAccumulator, broadcaster Broadcaster, runID string) *wsStreamWriter {
+	return &wsStreamWriter{
+		accum:       accum,
+		broadcaster: broadcaster,
+		runID:       runID,
+	}
+}
+
+func (w *wsStreamWriter) Write(p []byte) (int, error) {
+	n, err := w.accum.Write(p)
+	if err != nil {
+		return n, err
+	}
+	if w.broadcaster != nil && len(p) > 0 {
+		msg, _ := json.Marshal(map[string]string{
+			"type":   "stream",
+			"run_id": w.runID,
+			"data":   string(p),
+		})
+		w.broadcaster.Broadcast("run:"+w.runID, msg)
+	}
+	return n, nil
+}
+
+func (w *wsStreamWriter) Close() error {
+	return w.accum.Close()
+}
+
+func (w *wsStreamWriter) Text() string {
+	return w.accum.Text()
 }
 
 // streamFilePath computes the path for the .stream.json file using the same

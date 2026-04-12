@@ -4,13 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -221,30 +217,6 @@ func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, erro
 }
 
 // ---------------------------------------------------------------------------
-// Mock StreamPathGetter
-// ---------------------------------------------------------------------------
-
-type mockStreamPathGetter struct {
-	streamPath string
-	status     storage.ReviewStatus
-	hasPath    bool
-	hasStatus  bool
-	mu         sync.RWMutex
-}
-
-func (m *mockStreamPathGetter) GetStreamPath(_ string) (string, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.streamPath, m.hasPath
-}
-
-func (m *mockStreamPathGetter) GetReviewStatus(_ context.Context, _ string) (storage.ReviewStatus, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.status, m.hasStatus
-}
-
-// ---------------------------------------------------------------------------
 // HandleListReviews tests
 // ---------------------------------------------------------------------------
 
@@ -314,7 +286,7 @@ func TestHandleGetReview_Success(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
 	w := httptest.NewRecorder()
@@ -341,7 +313,7 @@ func TestHandleGetReview_NotFound(t *testing.T) {
 	getter := &mockReviewGetter{}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/nonexistent", nil)
 	w := httptest.NewRecorder()
@@ -362,7 +334,7 @@ func TestHandleGetReview_StorageError(t *testing.T) {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, nil))
+	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter))
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123", nil)
 	w := httptest.NewRecorder()
@@ -435,330 +407,4 @@ func TestHandleGetMetrics_StorageError(t *testing.T) {
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
 	}
-}
-
-// ---------------------------------------------------------------------------
-// HandleStreamReview tests
-// ---------------------------------------------------------------------------
-
-func TestHandleStreamReview_CompletedReviewWithStreamFile(t *testing.T) {
-	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
-	if err := os.WriteFile(streamFile, []byte(`{"type":"message","content":"hello"}`+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	getter := &mockReviewGetter{
-		review: &storage.ReviewRecord{
-			RunID:  "abc-123",
-			Status: storage.StatusCompleted,
-		},
-	}
-	pathGetter := &mockStreamPathGetter{
-		streamPath: streamFile,
-		status:     storage.StatusCompleted,
-		hasPath:    true,
-		hasStatus:  true,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		t.Fatal(err)
-	}
-	bodyStr := string(body)
-
-	if !strings.Contains(bodyStr, "event: output") {
-		t.Errorf("expected 'output' event, got: %s", bodyStr)
-	}
-	if !strings.Contains(bodyStr, "event: done") {
-		t.Errorf("expected 'done' event, got: %s", bodyStr)
-	}
-	if !strings.Contains(bodyStr, `{"type":"message","content":"hello"}`) {
-		t.Errorf("expected stream file content, got: %s", bodyStr)
-	}
-}
-
-func TestHandleStreamReview_CompletedReviewNoStreamFile(t *testing.T) {
-	getter := &mockReviewGetter{
-		review: &storage.ReviewRecord{
-			RunID:        "abc-123",
-			Status:       storage.StatusCompleted,
-			ClaudeOutput: "stored output text",
-		},
-	}
-	pathGetter := &mockStreamPathGetter{
-		status:    storage.StatusCompleted,
-		hasPath:   false,
-		hasStatus: true,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	bodyStr := string(body)
-
-	if !strings.Contains(bodyStr, "stored output text") {
-		t.Errorf("expected stored output for review without stream file, got: %s", bodyStr)
-	}
-	if !strings.Contains(bodyStr, "event: done") {
-		t.Errorf("expected 'done' event, got: %s", bodyStr)
-	}
-}
-
-func TestHandleStreamReview_ReviewNotFound(t *testing.T) {
-	getter := &mockReviewGetter{}
-	pathGetter := &mockStreamPathGetter{
-		hasPath:   false,
-		hasStatus: false,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
-
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/nonexistent/stream", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if !strings.Contains(string(body), "event: error") {
-		t.Errorf("expected 'error' event for unknown review, got: %s", string(body))
-	}
-}
-
-func TestHandleGetReview_IncludeStream(t *testing.T) {
-	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
-	if err := os.WriteFile(streamFile, []byte(`{"type":"result"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	getter := &mockReviewGetter{
-		review: &storage.ReviewRecord{
-			RunID:      "abc-123",
-			Repo:       "owner/repo.git",
-			PRNumber:   42,
-			Status:     storage.StatusCompleted,
-			CreatedAt:  time.Now(),
-		},
-	}
-	pathGetter := &mockStreamPathGetter{
-		streamPath: streamFile,
-		hasPath:    true,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}", HandleGetReview(getter, pathGetter))
-
-	req := httptest.NewRequest(http.MethodGet, "/reviews/abc-123?include_stream=true", nil)
-	w := httptest.NewRecorder()
-	mux.ServeHTTP(w, req)
-
-	resp := w.Result()
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
-	}
-
-	var result map[string]any
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatal(err)
-	}
-	if result["streaming_output"] == nil {
-		t.Error("expected streaming_output field to be present")
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Concurrent SSE viewer tests
-// ---------------------------------------------------------------------------
-
-func TestHandleStreamReview_ConcurrentReaders(t *testing.T) {
-	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
-	f, err := os.Create(streamFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.Close()
-
-	getter := &mockReviewGetter{
-		review: &storage.ReviewRecord{
-			RunID:  "abc-123",
-			Status: storage.StatusRunning,
-		},
-	}
-	pathGetter := &mockStreamPathGetter{
-		streamPath: streamFile,
-		status:     storage.StatusRunning,
-		hasPath:    true,
-		hasStatus:  true,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	var wg sync.WaitGroup
-	type readerResult struct {
-		body string
-		err  error
-	}
-	results := make([]readerResult, 3)
-
-	// Start 3 concurrent readers
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				results[idx] = readerResult{err: err}
-				return
-			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			results[idx] = readerResult{body: string(body)}
-		}(i)
-	}
-
-	// Let readers connect, then write data
-	time.Sleep(300 * time.Millisecond)
-	os.WriteFile(streamFile, []byte(`{"type":"system","subtype":"init","model":"claude-3"}`+"\n"), 0o644)
-	time.Sleep(600 * time.Millisecond)
-
-	// Mark as complete
-	pathGetter.mu.Lock()
-	pathGetter.status = storage.StatusCompleted
-	pathGetter.mu.Unlock()
-	time.Sleep(600 * time.Millisecond)
-
-	wg.Wait()
-
-	for i, r := range results {
-		if r.err != nil {
-			t.Errorf("reader %d failed: %v", i, r.err)
-			continue
-		}
-		if !strings.Contains(r.body, "event: output") {
-			t.Errorf("reader %d: expected 'output' event, got: %s", i, truncateStr(r.body, 200))
-		}
-		if !strings.Contains(r.body, "claude-3") {
-			t.Errorf("reader %d: expected model data, got: %s", i, truncateStr(r.body, 200))
-		}
-	}
-}
-
-func TestHandleStreamReview_MultiReaderCompletedReview(t *testing.T) {
-	streamFile := filepath.Join(t.TempDir(), "test.stream.json")
-	content := `{"type":"system","subtype":"init","model":"claude-3"}
-{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"text"}}}
-{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello world"}}}
-{"type":"result","cost_usd":0.05,"duration_ms":10000,"num_turns":5}
-`
-	if err := os.WriteFile(streamFile, []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	getter := &mockReviewGetter{
-		review: &storage.ReviewRecord{
-			RunID:  "abc-123",
-			Status: storage.StatusCompleted,
-		},
-	}
-	pathGetter := &mockStreamPathGetter{
-		streamPath: streamFile,
-		status:     storage.StatusCompleted,
-		hasPath:    true,
-		hasStatus:  true,
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /reviews/{run_id}/stream", HandleStreamReview(getter, pathGetter))
-	server := httptest.NewServer(mux)
-	defer server.Close()
-
-	var wg sync.WaitGroup
-	errs := make([]error, 3)
-
-	// 3 concurrent readers on same completed review
-	for i := 0; i < 3; i++ {
-		wg.Add(1)
-		go func(idx int) {
-			defer wg.Done()
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			defer cancel()
-			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/reviews/abc-123/stream", nil)
-			resp, err := http.DefaultClient.Do(req)
-			if err != nil {
-				errs[idx] = err
-				return
-			}
-			defer resp.Body.Close()
-			body, err := io.ReadAll(resp.Body)
-			if err != nil {
-				errs[idx] = err
-				return
-			}
-			bodyStr := string(body)
-			if !strings.Contains(bodyStr, "event: done") {
-				errs[idx] = errors.New("expected 'done' event")
-			}
-			if !strings.Contains(bodyStr, "Hello world") {
-				errs[idx] = errors.New("expected stream content")
-			}
-		}(i)
-	}
-
-	wg.Wait()
-
-	for i, err := range errs {
-		if err != nil {
-			t.Errorf("reader %d: %v", i, err)
-		}
-	}
-}
-
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

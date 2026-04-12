@@ -779,8 +779,105 @@
         "use strict";
 
         var app = document.getElementById("app");
-        var pollTimer = null;
-        var eventSource = null;
+
+        // --- WebSocket Manager ---
+        var ws = {
+            conn: null,
+            reconnectDelay: 1000,
+            maxReconnectDelay: 30000,
+            handlers: {},
+            subscriptions: {},
+            reconnectTimer: null,
+            _onopen: null,
+            _onclose: null,
+
+            connect: function() {
+                var protocol = location.protocol === "https:" ? "wss:" : "ws:";
+                var url = protocol + "//" + location.host + "/ws";
+                try {
+                    ws.conn = new WebSocket(url);
+                } catch(e) {
+                    ws.conn = null;
+                    ws._scheduleReconnect();
+                    return;
+                }
+                ws.conn.onopen = function() {
+                    ws.reconnectDelay = 1000;
+                    // Re-subscribe to active topics
+                    for (var topic in ws.subscriptions) {
+                        if (ws.subscriptions[topic]) {
+                            ws._send({type: "subscribe", topic: topic});
+                        }
+                    }
+                    if (ws._onopen) ws._onopen();
+                };
+                ws.conn.onclose = function() {
+                    ws.conn = null;
+                    ws._scheduleReconnect();
+                    if (ws._onclose) ws._onclose();
+                };
+                ws.conn.onmessage = function(e) {
+                    try {
+                        var msg = JSON.parse(e.data);
+                        if (msg.type && ws.handlers[msg.type]) {
+                            ws.handlers[msg.type].forEach(function(fn) { fn(msg); });
+                        }
+                    } catch(err) {}
+                };
+            },
+
+            _scheduleReconnect: function() {
+                if (ws.reconnectTimer) return;
+                ws.reconnectTimer = setTimeout(function() {
+                    ws.reconnectTimer = null;
+                    ws.connect();
+                }, ws.reconnectDelay);
+                ws.reconnectDelay = Math.min(ws.reconnectDelay * 2, ws.maxReconnectDelay);
+            },
+
+            _send: function(obj) {
+                if (ws.conn && ws.conn.readyState === WebSocket.OPEN) {
+                    ws.conn.send(JSON.stringify(obj));
+                }
+            },
+
+            subscribe: function(topic) {
+                ws.subscriptions[topic] = true;
+                ws._send({type: "subscribe", topic: topic});
+            },
+
+            unsubscribe: function(topic) {
+                delete ws.subscriptions[topic];
+                ws._send({type: "unsubscribe", topic: topic});
+            },
+
+            on: function(type, fn) {
+                if (!ws.handlers[type]) ws.handlers[type] = [];
+                ws.handlers[type].push(fn);
+            },
+
+            off: function(type, fn) {
+                if (!ws.handlers[type]) return;
+                ws.handlers[type] = ws.handlers[type].filter(function(f) { return f !== fn; });
+            },
+
+            disconnect: function() {
+                if (ws.reconnectTimer) {
+                    clearTimeout(ws.reconnectTimer);
+                    ws.reconnectTimer = null;
+                }
+                ws.subscriptions = {};
+                ws.handlers = {};
+                if (ws.conn) {
+                    ws.conn.onclose = null;
+                    ws.conn.close();
+                    ws.conn = null;
+                }
+            }
+        };
+
+        // Connect on page load
+        ws.connect();
 
         // --- Theme ---
         var themeBtn = document.getElementById("theme-toggle");
@@ -1580,8 +1677,7 @@
         // Router
         // =========================================================
         function route() {
-            stopPolling();
-            stopEventSource();
+            ws.unsubscribe("all");
             var hash = location.hash || "#/dashboard";
             updateNav(hash);
 
@@ -1605,25 +1701,12 @@
             });
         }
 
-        function stopPolling() {
-            if (pollTimer) {
-                clearInterval(pollTimer);
-                pollTimer = null;
-            }
-        }
-
-        function stopEventSource() {
-            if (eventSource) {
-                eventSource.close();
-                eventSource = null;
-            }
-        }
-
         window.addEventListener("hashchange", route);
 
         // --- Dashboard view ---
         function renderDashboard() {
             app.innerHTML = '<div class="loading">Loading metrics</div>';
+            ws.subscribe("all");
             Promise.all([api.getMetrics(), api.listReviews({ limit: 10 })]).then(function(results) {
                 var m = results[0];
                 var r = results[1];
@@ -1645,13 +1728,6 @@
                 reviewTable(reviews) +
                 '</div>';
             app.innerHTML = html;
-
-            // Auto-refresh every 30s
-            pollTimer = setInterval(function() {
-                Promise.all([api.getMetrics(), api.listReviews({ limit: 10 })]).then(function(results) {
-                    renderDashboardContent(results[0], results[1].reviews || []);
-                });
-            }, 30000);
         }
 
         function statCard(label, value) {
@@ -1755,8 +1831,7 @@
         // --- Review detail view ---
         function renderReviewDetail(runId) {
             app.innerHTML = '<div class="loading">Loading review</div>';
-            stopEventSource();
-            stopPolling();
+            ws.unsubscribe("all");
 
             api.getReview(runId).then(function(r) {
                 if (!r) {
@@ -1766,18 +1841,7 @@
                 if (r.status === "pending" || r.status === "running") {
                     renderStreamingView(runId, r);
                 } else {
-                    // Try to get stream data for rich rendering
-                    fetch("/reviews/" + runId + "?include_stream=true").then(function(resp) {
-                        return resp.json();
-                    }).then(function(data) {
-                        if (data && data.streaming_output) {
-                            renderDetailContent(r, data.streaming_output);
-                        } else {
-                            renderDetailContent(r, null);
-                        }
-                    }).catch(function() {
-                        renderDetailContent(r, null);
-                    });
+                    renderDetailContent(r, r.claude_output || null);
                 }
             }).catch(function() {
                 app.innerHTML = '<div class="empty">Failed to load review</div>';
@@ -1815,29 +1879,24 @@
             var contentEl = document.getElementById("stream-content");
             var renderer = new StreamRenderer(container, contentEl);
 
-            eventSource = new EventSource("/reviews/" + runId + "/stream");
+            ws.subscribe("run:" + runId);
 
-            eventSource.addEventListener("output", function(e) {
-                // Clear "waiting" message on first data
+            var onStream = function(msg) {
                 if (contentEl.textContent === "Waiting for output...") {
                     contentEl.textContent = "";
                 }
-                renderer.appendData(e.data);
-            });
-
-            eventSource.addEventListener("done", function() {
-                stopEventSource();
-                // Stop live indicator
+                if (msg.data) renderer.appendData(msg.data);
+            };
+            var onDone = function() {
+                ws.off("stream", onStream);
+                ws.off("stream_done", onDone);
+                ws.off("review_update", onUpdate);
+                ws.unsubscribe("run:" + runId);
                 var indicator = document.getElementById("live-indicator");
                 if (indicator) indicator.style.display = "none";
-
-                // Flush any pending markdown renders
                 renderer.flushPending();
-
-                // Fetch final review data to update status
                 api.getReview(runId).then(function(r) {
                     if (r) {
-                        // Update status badge
                         var badge = document.getElementById("detail-status");
                         if (badge) {
                             badge.className = badgeClass(r.status);
@@ -1845,33 +1904,19 @@
                         }
                     }
                 }).catch(function() {});
-            });
-
-            eventSource.onerror = function() {
-                stopEventSource();
-                contentEl.textContent += "\n\n[Stream connection lost. Falling back to polling...]";
-                // Fall back to polling
-                if (!pollTimer) {
-                    pollTimer = setInterval(function() {
-                        api.getReview(runId).then(function(r) {
-                            if (r && r.status !== "pending" && r.status !== "running") {
-                                stopPolling();
-                                fetch("/reviews/" + runId + "?include_stream=true").then(function(resp) {
-                                    return resp.json();
-                                }).then(function(data) {
-                                    if (data && data.streaming_output) {
-                                        renderDetailContent(r, data.streaming_output);
-                                    } else {
-                                        renderDetailContent(r, null);
-                                    }
-                                }).catch(function() {
-                                    renderDetailContent(r, null);
-                                });
-                            }
-                        });
-                    }, 5000);
+            };
+            var onUpdate = function(msg) {
+                if (msg.run_id !== runId) return;
+                var badge = document.getElementById("detail-status");
+                if (badge && msg.status) {
+                    badge.className = badgeClass(msg.status);
+                    badge.textContent = msg.status;
                 }
             };
+
+            ws.on("stream", onStream);
+            ws.on("stream_done", onDone);
+            ws.on("review_update", onUpdate);
         }
 
         function renderDetailContent(r, streamOutput) {

@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -49,6 +50,7 @@ type Worker struct {
 	claude            ClaudeRunner
 	store             storage.ReviewStore
 	logger            Logger
+	broadcaster       Broadcaster
 	gitPath           string
 	claudePath        string
 	model             string
@@ -61,7 +63,8 @@ type Worker struct {
 
 // NewWorker creates a new review Worker with the given dependencies.
 // If store is nil, review records are not persisted (useful for testing).
-func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int) *Worker {
+// If broadcaster is nil, no WebSocket events are sent.
+func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, broadcaster Broadcaster, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
 	}
@@ -72,6 +75,7 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, gi
 		claude:            claude,
 		store:             store,
 		logger:            logger,
+		broadcaster:       broadcaster,
 		gitPath:           gitPath,
 		claudePath:        claudePath,
 		model:             model,
@@ -173,7 +177,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		args = append(args, "--mcp-config", w.mcpConfigPath, "--strict-mcp-config")
 	}
 
-	// Set up streaming output file so the SSE endpoint can tail it.
+	// Set up streaming output file so the WebSocket hub can push to subscribers.
 	streamPath := streamFilePath(runID, p)
 	w.streamPaths.Store(runID, streamPath)
 
@@ -187,7 +191,13 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 			output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
 		} else {
 			defer accum.Close()
-			exitCode, err = w.claude.RunStreaming(reviewCtx, dir, accum, args...)
+			writer := io.Writer(accum)
+			if w.broadcaster != nil {
+				ws := newWSStreamWriter(accum, w.broadcaster, runID)
+				defer ws.Close()
+				writer = ws
+			}
+			exitCode, err = w.claude.RunStreaming(reviewCtx, dir, writer, args...)
 			output = accum.Text()
 		}
 
@@ -261,16 +271,52 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 // recordResult updates the review record in storage. No-op if store is nil.
 // Storage errors are logged but never abort the review.
 func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.Time, status storage.ReviewStatus, conclusion storage.ReviewConclusion, durationMs int64, attempts int, output string) {
-	if w.store == nil {
+	if w.store != nil {
+		if err := w.store.UpdateReview(ctx, runID, status, conclusion, durationMs, attempts, output); err != nil {
+			w.logger.Error("failed to update review record",
+				"run_id", runID,
+				"status", status,
+				"error", err,
+			)
+		}
+	}
+	w.broadcastReviewUpdate(runID, status, string(conclusion), durationMs)
+}
+
+// broadcastReviewUpdate sends a review_update event to all WebSocket subscribers.
+func (w *Worker) broadcastReviewUpdate(runID string, status storage.ReviewStatus, conclusion string, durationMs int64) {
+	if w.broadcaster == nil {
 		return
 	}
-	if err := w.store.UpdateReview(ctx, runID, status, conclusion, durationMs, attempts, output); err != nil {
-		w.logger.Error("failed to update review record",
-			"run_id", runID,
-			"status", status,
-			"error", err,
-		)
+	msg, err := json.Marshal(map[string]any{
+		"type":        "review_update",
+		"run_id":      runID,
+		"status":      string(status),
+		"conclusion":  conclusion,
+		"duration_ms": durationMs,
+	})
+	if err != nil {
+		return
 	}
+	w.broadcaster.Broadcast("run:"+runID, msg)
+	w.broadcaster.Broadcast("all", msg)
+
+	// Broadcast stream_done for terminal statuses.
+	if isTerminal(status) {
+		doneMsg, _ := json.Marshal(map[string]string{
+			"type":   "stream_done",
+			"run_id": runID,
+		})
+		w.broadcaster.Broadcast("run:"+runID, doneMsg)
+	}
+}
+
+func isTerminal(s storage.ReviewStatus) bool {
+	switch s {
+	case storage.StatusCompleted, storage.StatusFailed, storage.StatusTimedOut, storage.StatusCancelled:
+		return true
+	}
+	return false
 }
 
 // cloneRepo performs a shallow single-branch clone of the target repo.

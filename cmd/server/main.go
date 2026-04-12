@@ -262,13 +262,15 @@ func main() {
 	defer store.Close()
 	slog.Info("database initialized", "path", dbPath)
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
+	hub := api.NewHub()
+
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
 	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
-	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store, worker))
-	mux.HandleFunc("GET /reviews/{run_id}/stream", api.HandleStreamReview(store, worker))
+	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
+	mux.HandleFunc("GET /ws", api.HandleWebSocket(hub))
 	mux.HandleFunc("GET /metrics", api.HandleGetMetrics(store))
 
 	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(web.FS))))
