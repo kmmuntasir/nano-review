@@ -148,6 +148,7 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 
 		sessionToken := cfg.SessionManager.CreateToken(info.ID)
 		cfg.SessionManager.SetCookie(w, sessionToken)
+		cfg.SessionManager.SetTokenCookie(w, sessionToken)
 
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
@@ -157,6 +158,7 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 func HandleLogout(sm *SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		sm.ClearCookie(w)
+		sm.ClearTokenCookie(w)
 		http.Redirect(w, r, "/", http.StatusFound)
 	}
 }

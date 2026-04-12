@@ -17,8 +17,12 @@ import (
 )
 
 const (
-	// cookieName is the name of the session cookie.
+	// cookieName is the name of the HttpOnly session cookie.
 	cookieName = "nano_session"
+
+	// tokenCookieName is the name of the non-HttpOnly session token cookie,
+	// readable by JavaScript for WebSocket authentication.
+	tokenCookieName = "nano_session_token"
 
 	// signatureLength is the byte length of the HMAC-SHA256 signature.
 	signatureLength = 32
@@ -179,6 +183,35 @@ func (m *SessionManager) ClearCookie(w http.ResponseWriter) {
 	})
 }
 
+// SetTokenCookie writes a non-HttpOnly session token cookie so JavaScript can
+// read the value for WebSocket authentication via query parameter.
+func (m *SessionManager) SetTokenCookie(w http.ResponseWriter, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     tokenCookieName,
+		Value:    token,
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(m.maxAge.Seconds()),
+		Domain:   m.cookieDomain(),
+	})
+}
+
+// ClearTokenCookie removes the non-HttpOnly token cookie by setting MaxAge to -1.
+func (m *SessionManager) ClearTokenCookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     tokenCookieName,
+		Value:    "",
+		Path:     "/",
+		Secure:   true,
+		HttpOnly: false,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+		Domain:   m.cookieDomain(),
+	})
+}
+
 // CookieName returns the session cookie name for use in middleware.
 func (m *SessionManager) CookieName() string {
 	return cookieName
@@ -196,8 +229,9 @@ func (m *SessionManager) AuthEnabled() bool {
 
 // RequireAuth returns an HTTP middleware that validates the nano_session cookie.
 // If authentication is disabled (AUTH_ENABLED=false), it passes requests through
-// without checking. Otherwise it reads the cookie, validates the token, and
-// attaches the User to the request context. Returns 401 JSON on failure.
+// without checking. Otherwise it reads the cookie (or the ?token= query parameter
+// for WebSocket upgrades), validates the token, and attaches the User to the
+// request context. Returns 401 JSON on failure.
 func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !m.authEnabled {
@@ -205,13 +239,27 @@ func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		tokenValue := ""
+		source := "cookie"
+
+		// Try cookie first.
 		cookie, err := r.Cookie(cookieName)
-		if err != nil {
+		if err == nil {
+			tokenValue = cookie.Value
+		}
+
+		// Fall back to ?token= query parameter (used by WebSocket connections).
+		if tokenValue == "" {
+			tokenValue = r.URL.Query().Get("token")
+			source = "query"
+		}
+
+		if tokenValue == "" {
 			writeUnauthorized(w, "missing session cookie")
 			return
 		}
 
-		sessionID, err := m.ValidateToken(cookie.Value)
+		sessionID, err := m.ValidateToken(tokenValue)
 		if err != nil {
 			writeUnauthorized(w, "invalid or expired session token")
 			return
@@ -219,7 +267,7 @@ func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
 
 		user := User{
 			ID:     sessionID,
-			Source: "cookie",
+			Source: source,
 		}
 
 		ctx := ContextWithUser(r.Context(), user)

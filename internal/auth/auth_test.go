@@ -277,6 +277,68 @@ func TestClearCookie(t *testing.T) {
 	}
 }
 
+func TestSetTokenCookie(t *testing.T) {
+	m := NewSessionManager(testKey(t), 12, []string{"example.com"})
+	token := m.CreateToken("sess-1")
+
+	w := httptest.NewRecorder()
+	m.SetTokenCookie(w, token)
+
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+
+	c := cookies[0]
+	if c.Name != tokenCookieName {
+		t.Errorf("cookie name = %q, want %q", c.Name, tokenCookieName)
+	}
+	if c.Value != token {
+		t.Error("cookie value mismatch")
+	}
+	if !c.Secure {
+		t.Error("expected Secure=true")
+	}
+	if c.HttpOnly {
+		t.Error("expected HttpOnly=false for JavaScript-readable token cookie")
+	}
+	if c.SameSite != http.SameSiteLaxMode {
+		t.Errorf("SameSite = %v, want Lax", c.SameSite)
+	}
+	if c.Path != "/" {
+		t.Errorf("Path = %q, want %q", c.Path, "/")
+	}
+	if c.Domain != "example.com" {
+		t.Errorf("Domain = %q, want %q", c.Domain, "example.com")
+	}
+	if c.MaxAge != int(12*time.Hour.Seconds()) {
+		t.Errorf("MaxAge = %d, want %d", c.MaxAge, int(12*time.Hour.Seconds()))
+	}
+}
+
+func TestClearTokenCookie(t *testing.T) {
+	m := NewSessionManager(testKey(t), 1, []string{"example.com"})
+
+	w := httptest.NewRecorder()
+	m.ClearTokenCookie(w)
+
+	cookies := w.Result().Cookies()
+	if len(cookies) != 1 {
+		t.Fatalf("expected 1 cookie, got %d", len(cookies))
+	}
+
+	c := cookies[0]
+	if c.Name != tokenCookieName {
+		t.Errorf("cookie name = %q, want %q", c.Name, tokenCookieName)
+	}
+	if c.Value != "" {
+		t.Errorf("cookie value = %q, want empty", c.Value)
+	}
+	if c.MaxAge != -1 {
+		t.Errorf("MaxAge = %d, want -1", c.MaxAge)
+	}
+}
+
 func TestCookieName(t *testing.T) {
 	m := NewSessionManager(testKey(t), 1, nil)
 	if m.CookieName() != "nano_session" {
@@ -515,6 +577,79 @@ func TestRequireAuth(t *testing.T) {
 		ct := rec.Header().Get("Content-Type")
 		if ct != "application/json" {
 			t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+		}
+	})
+
+	t.Run("valid token in query param authenticates user", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		token := m.CreateToken("sess-query")
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := UserFromContext(r.Context())
+			if user.ID != "sess-query" {
+				t.Errorf("user ID = %q, want %q", user.ID, "sess-query")
+			}
+			if user.Source != "query" {
+				t.Errorf("user source = %q, want %q", user.Source, "query")
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/ws?token="+token, nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("invalid token in query param returns 401", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be called")
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/ws?token=garbage", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("cookie takes precedence over query param", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		cookieToken := m.CreateToken("sess-cookie")
+		queryToken := m.CreateToken("sess-query")
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := UserFromContext(r.Context())
+			if user.ID != "sess-cookie" {
+				t.Errorf("user ID = %q, want %q (cookie should take precedence)", user.ID, "sess-cookie")
+			}
+			if user.Source != "cookie" {
+				t.Errorf("user source = %q, want %q", user.Source, "cookie")
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/ws?token="+queryToken, nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: cookieToken})
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
 		}
 	})
 }

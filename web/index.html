@@ -919,9 +919,20 @@
             _onopen: null,
             _onclose: null,
 
+            _getSessionToken: function() {
+                var match = document.cookie.match(/(?:^|;\s*)nano_session_token=([^;]*)/);
+                return match ? decodeURIComponent(match[1]) : null;
+            },
+
             connect: function() {
                 var protocol = location.protocol === "https:" ? "wss:" : "ws:";
                 var url = protocol + "//" + location.host + "/ws";
+
+                // Pass session token as query parameter for WebSocket auth.
+                var token = ws._getSessionToken();
+                if (token) {
+                    url += "?token=" + encodeURIComponent(token);
+                }
                 try {
                     ws.conn = new WebSocket(url);
                 } catch(e) {
