@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/kmmuntasir/nano-review/internal/api"
+	"github.com/kmmuntasir/nano-review/internal/auth"
 	"github.com/kmmuntasir/nano-review/internal/reviewer"
 	"github.com/kmmuntasir/nano-review/internal/storage"
 	"github.com/kmmuntasir/nano-review/web"
@@ -266,7 +267,14 @@ func main() {
 
 	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
 
+	oauthCfg := &auth.OAuthConfig{
+		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:  os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"),
+	}
+
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /auth/login", auth.HandleGoogleLogin(oauthCfg))
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
 	mux.HandleFunc("GET /reviews", api.HandleListReviews(store))
 	mux.HandleFunc("GET /reviews/{run_id}", api.HandleGetReview(store))
