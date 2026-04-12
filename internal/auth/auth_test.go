@@ -1,12 +1,16 @@
 package auth
 
 import (
+	"context"
 	"crypto/rand"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -545,4 +549,485 @@ func parseAuthEnabledValue(v string) bool {
 		return false
 	}
 	return true
+}
+
+// --- SESSION_SECRET validation via env var ---
+
+func TestNewSessionManagerRejectsShortSecret(t *testing.T) {
+	tests := []struct {
+		name string
+		key  []byte
+	}{
+		{name: "empty key", key: []byte{}},
+		{name: "1 byte", key: []byte("a")},
+		{name: "15 bytes", key: []byte("shortsecretkey!")},
+		{name: "31 bytes", key: []byte(strings.Repeat("x", 31))},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatal("expected panic for key shorter than 32 bytes")
+				}
+				msg := fmt.Sprint(r)
+				if !strings.Contains(msg, "32 bytes") {
+					t.Errorf("panic message = %q, want mention of '32 bytes'", msg)
+				}
+			}()
+			NewSessionManager(tt.key, 1, nil)
+		})
+	}
+}
+
+func TestNewSessionManagerRejectsShortSecretFromEnv(t *testing.T) {
+	tests := []struct {
+		name string
+		secret string
+	}{
+		{name: "empty secret", secret: ""},
+		{name: "short secret", secret: "too-short"},
+		{name: "15 chars", secret: "shortsecretkey!"},
+		{name: "31 chars", secret: strings.Repeat("x", 31)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("SESSION_SECRET", tt.secret)
+
+			defer func() {
+				r := recover()
+				if r == nil {
+					t.Fatalf("expected panic for SESSION_SECRET of length %d", len(tt.secret))
+				}
+			}()
+
+			secret := os.Getenv("SESSION_SECRET")
+			NewSessionManager([]byte(secret), 24, nil)
+		})
+	}
+}
+
+// --- Missing env var validation ---
+
+func TestNewSessionManagerRejectsMissingEnvVars(t *testing.T) {
+	tests := []struct {
+		name             string
+		authEnabled      string
+		clientID         string
+		clientSecret     string
+		wantOAuthReady   bool
+	}{
+		{
+			name:           "AUTH_ENABLED true with missing GOOGLE_CLIENT_ID",
+			authEnabled:    "true",
+			clientID:       "",
+			clientSecret:   "some-secret",
+			wantOAuthReady: false,
+		},
+		{
+			name:           "AUTH_ENABLED true with missing GOOGLE_CLIENT_SECRET",
+			authEnabled:    "true",
+			clientID:       "some-id",
+			clientSecret:   "",
+			wantOAuthReady: false,
+		},
+		{
+			name:           "AUTH_ENABLED true with both missing",
+			authEnabled:    "true",
+			clientID:       "",
+			clientSecret:   "",
+			wantOAuthReady: false,
+		},
+		{
+			name:           "AUTH_ENABLED true with both present",
+			authEnabled:    "true",
+			clientID:       "client-id",
+			clientSecret:   "client-secret",
+			wantOAuthReady: true,
+		},
+		{
+			name:           "AUTH_ENABLED false with both missing",
+			authEnabled:    "false",
+			clientID:       "",
+			clientSecret:   "",
+			wantOAuthReady: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTH_ENABLED", tt.authEnabled)
+			t.Setenv("GOOGLE_CLIENT_ID", tt.clientID)
+			t.Setenv("GOOGLE_CLIENT_SECRET", tt.clientSecret)
+
+			m := NewSessionManager(testKey(t), 24, nil)
+
+			cfg := &OAuthConfig{
+				ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
+				ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
+				RedirectURL:  "http://localhost:8080/auth/callback",
+			}
+
+			gotOAuthReady := cfg.OAuthEndpoint() != nil
+			if gotOAuthReady != tt.wantOAuthReady {
+				t.Errorf("OAuthEndpoint() ready = %v, want %v", gotOAuthReady, tt.wantOAuthReady)
+			}
+
+			if m.AuthEnabled() != (tt.authEnabled != "false") {
+				t.Errorf("AuthEnabled() = %v, want %v", m.AuthEnabled(), tt.authEnabled != "false")
+			}
+		})
+	}
+}
+
+// --- parseAuthEnabled with actual env var ---
+
+func TestParseAuthEnabledWithEnvVar(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     bool
+	}{
+		{name: "empty defaults to true", envValue: "", want: true},
+		{name: "random string defaults to true", envValue: "yes", want: true},
+		{name: "lowercase false", envValue: "false", want: false},
+		{name: "uppercase FALSE", envValue: "FALSE", want: false},
+		{name: "mixed case FaLsE", envValue: "FaLsE", want: false},
+		{name: "trUrE defaults to true", envValue: "trUrE", want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("AUTH_ENABLED", tt.envValue)
+			m := NewSessionManager(testKey(t), 24, nil)
+			if m.AuthEnabled() != tt.want {
+				t.Errorf("AuthEnabled() = %v, want %v", m.AuthEnabled(), tt.want)
+			}
+		})
+	}
+}
+
+// --- Exact 32-byte boundary ---
+
+func TestNewSessionManagerAccepts32ByteKey(t *testing.T) {
+	t.Parallel()
+
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("unexpected panic for 32-byte key: %v", r)
+		}
+	}()
+
+	m := NewSessionManager(key, 1, nil)
+	if m == nil {
+		t.Fatal("expected non-nil SessionManager")
+	}
+}
+
+// --- 64-byte key accepted ---
+
+func TestNewSessionManagerAcceptsLongKey(t *testing.T) {
+	t.Parallel()
+
+	key := make([]byte, 64)
+	for i := range key {
+		key[i] = byte(i)
+	}
+
+	m := NewSessionManager(key, 1, nil)
+	if m == nil {
+		t.Fatal("expected non-nil SessionManager")
+	}
+}
+
+// --- Token round-trip with different session IDs ---
+
+func TestTokenRoundTripVariousSessionIDs(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+
+	tests := []struct {
+		name      string
+		sessionID string
+	}{
+		{name: "simple ID", sessionID: "user-123"},
+		{name: "empty session ID", sessionID: ""},
+		{name: "long session ID", sessionID: strings.Repeat("a", 500)},
+		{name: "ID with special chars", sessionID: "user@example.com:8080/path?q=1&r=2"},
+		{name: "ID with unicode", sessionID: "用户-αβγ-🔐"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			token := m.CreateToken(tt.sessionID)
+			parsedID, err := m.ValidateToken(token)
+			if err != nil {
+				t.Fatalf("ValidateToken() error = %v", err)
+			}
+			if parsedID != tt.sessionID {
+				t.Errorf("ValidateToken() id = %q, want %q", parsedID, tt.sessionID)
+			}
+		})
+	}
+}
+
+// --- ValidateToken wrong timestamp length ---
+
+func TestValidateTokenWrongTimestampLength(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+
+	sessionIDSig := m.CreateToken("sess-1")
+	parts := strings.SplitN(sessionIDSig, ".", 4)
+
+	// Replace timestamp with a segment that decodes to wrong length.
+	shortTS := base64.RawURLEncoding.EncodeToString([]byte{1, 2, 3})
+	fake := parts[0] + "." + shortTS + "." + parts[2] + "." + parts[3]
+
+	_, err := m.ValidateToken(fake)
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("error = %v, want ErrInvalidToken", err)
+	}
+}
+
+// --- ValidateToken tampered random bytes ---
+
+func TestValidateTokenTamperedRandomBytes(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+	token := m.CreateToken("sess-1")
+	parts := strings.SplitN(token, ".", 4)
+
+	fakeRand := base64.RawURLEncoding.EncodeToString(make([]byte, randomBytesLength))
+	fake := parts[0] + "." + parts[1] + "." + fakeRand + "." + parts[3]
+
+	_, err := m.ValidateToken(fake)
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("error = %v, want ErrInvalidToken", err)
+	}
+}
+
+// --- ValidateToken with extra dots ---
+
+func TestValidateTokenTooManySegments(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+	token := m.CreateToken("sess-1")
+	fake := token + ".extra"
+
+	_, err := m.ValidateToken(fake)
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("error = %v, want ErrInvalidToken", err)
+	}
+}
+
+// --- ValidateToken with just dots ---
+
+func TestValidateTokenOnlyDots(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+
+	_, err := m.ValidateToken("...")
+	if !errors.Is(err, ErrInvalidToken) {
+		t.Errorf("error = %v, want ErrInvalidToken", err)
+	}
+}
+
+// --- ClearCookie domain propagation ---
+
+func TestClearCookieDomainPropagation(t *testing.T) {
+	t.Parallel()
+
+	t.Run("with domain", func(t *testing.T) {
+		m := NewSessionManager(testKey(t), 1, []string{"app.example.com"})
+
+		w := httptest.NewRecorder()
+		m.ClearCookie(w)
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if cookies[0].Domain != "app.example.com" {
+			t.Errorf("Domain = %q, want %q", cookies[0].Domain, "app.example.com")
+		}
+	})
+
+	t.Run("without domain", func(t *testing.T) {
+		m := NewSessionManager(testKey(t), 1, nil)
+
+		w := httptest.NewRecorder()
+		m.ClearCookie(w)
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if cookies[0].Domain != "" {
+			t.Errorf("Domain = %q, want empty", cookies[0].Domain)
+		}
+	})
+}
+
+// --- RequireAuth preserves context beyond user ---
+
+func TestRequireAuthPreservesContext(t *testing.T) {
+	t.Parallel()
+
+	key := testKey(t)
+	m := NewSessionManager(key, 1, nil)
+	m.authEnabled = true
+
+	token := m.CreateToken("sess-ctx")
+
+	parentCtx := contextWithTestValue(context.Background(), "test-key", "test-value")
+
+	handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		user := UserFromContext(r.Context())
+		if user.ID != "sess-ctx" {
+			t.Errorf("user ID = %q, want %q", user.ID, "sess-ctx")
+		}
+		got := getTestValue(r.Context(), "test-key")
+		if got != "test-value" {
+			t.Errorf("context value = %q, want %q", got, "test-value")
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+	req = req.WithContext(parentCtx)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+// --- CreateToken produces valid base64 segments ---
+
+func TestCreateTokenValidBase64(t *testing.T) {
+	t.Parallel()
+
+	m := NewSessionManager(testKey(t), 1, nil)
+	token := m.CreateToken("sess-b64")
+	parts := strings.SplitN(token, ".", 4)
+
+	for i, part := range parts {
+		_, err := base64.RawURLEncoding.DecodeString(part)
+		if err != nil {
+			t.Errorf("token segment %d is not valid base64: %v", i, err)
+		}
+	}
+}
+
+// --- ValidateToken expired token boundary ---
+
+func TestValidateTokenNotExpiredWithinMaxAge(t *testing.T) {
+	t.Parallel()
+
+	// Create token with current timestamp, validate immediately.
+	m := NewSessionManager(testKey(t), 24, nil)
+	token := m.CreateToken("sess-fresh")
+
+	parsedID, err := m.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("ValidateToken() on fresh token error = %v", err)
+	}
+	if parsedID != "sess-fresh" {
+		t.Errorf("ValidateToken() id = %q, want %q", parsedID, "sess-fresh")
+	}
+}
+
+// --- ValidateToken with crafted old timestamp ---
+
+func TestValidateTokenOldTimestamp(t *testing.T) {
+	t.Parallel()
+
+	key := testKey(t)
+	m := NewSessionManager(key, 1, nil)
+
+	// Create a token manually with a timestamp from 2 hours ago.
+	sessionID := "sess-old"
+	ts := make([]byte, 8)
+	binary.BigEndian.PutUint64(ts, uint64(time.Now().Add(-2*time.Hour).Unix()))
+
+	randBytes := make([]byte, randomBytesLength)
+	if _, err := rand.Read(randBytes); err != nil {
+		t.Fatal(err)
+	}
+
+	sig := m.computeSignature(sessionID, ts, randBytes)
+
+	token := encodeSegment(sessionID) + "." +
+		encodeSegment(string(ts)) + "." +
+		encodeSegment(string(randBytes)) + "." +
+		encodeSegment(string(sig))
+
+	_, err := m.ValidateToken(token)
+	if !errors.Is(err, ErrExpiredToken) {
+		t.Errorf("error = %v, want ErrExpiredToken", err)
+	}
+}
+
+// --- OAuthConfig validation via ValidateOAuthConfig ---
+
+func TestValidateOAuthConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		cfg     OAuthConfig
+		wantErr bool
+	}{
+		{name: "both present", cfg: OAuthConfig{ClientID: "id", ClientSecret: "secret"}, wantErr: false},
+		{name: "missing client ID", cfg: OAuthConfig{ClientSecret: "secret"}, wantErr: true},
+		{name: "missing client secret", cfg: OAuthConfig{ClientID: "id"}, wantErr: true},
+		{name: "both empty", cfg: OAuthConfig{}, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.cfg.Validate()
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if !strings.Contains(err.Error(), "GOOGLE_CLIENT") {
+					t.Errorf("error = %v, want mention of GOOGLE_CLIENT", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+// --- Test helpers for context preservation test ---
+
+type testCtxKey string
+
+func contextWithTestValue(ctx context.Context, key, value string) context.Context {
+	return context.WithValue(ctx, testCtxKey(key), value)
+}
+
+func getTestValue(ctx context.Context, key string) string {
+	v, _ := ctx.Value(testCtxKey(key)).(string)
+	return v
 }

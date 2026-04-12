@@ -3,8 +3,10 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"strings"
 
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
@@ -46,6 +48,22 @@ func (c *OAuthConfig) OAuthEndpoint() *oauth2.Config {
 		Scopes:       googleScopes,
 		Endpoint:     google.Endpoint,
 	}
+}
+
+// Validate checks that the OAuth configuration has the required fields.
+// Returns an error listing missing GOOGLE_CLIENT_ID and/or GOOGLE_CLIENT_SECRET.
+func (c *OAuthConfig) Validate() error {
+	var missing []string
+	if c.ClientID == "" {
+		missing = append(missing, "GOOGLE_CLIENT_ID")
+	}
+	if c.ClientSecret == "" {
+		missing = append(missing, "GOOGLE_CLIENT_SECRET")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("missing required OAuth config: %s", strings.Join(missing, ", "))
+	}
+	return nil
 }
 
 // HandleGoogleLogin returns an http.HandlerFunc that redirects the user to
