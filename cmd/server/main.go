@@ -265,6 +265,24 @@ func main() {
 
 	hub := api.NewHub()
 
+	sessionCleanupInterval := 1 * time.Hour
+	if v := os.Getenv("SESSION_CLEANUP_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			sessionCleanupInterval = d
+		} else {
+			slog.Error("invalid SESSION_CLEANUP_INTERVAL, using default", "value", v, "error", err)
+		}
+	}
+
+	sessionMaxAge := 7 * 24 * time.Hour
+	if v := os.Getenv("SESSION_MAX_AGE"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			sessionMaxAge = d
+		} else {
+			slog.Error("invalid SESSION_MAX_AGE, using default", "value", v, "error", err)
+		}
+	}
+
 	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
@@ -328,6 +346,29 @@ func main() {
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		ticker := time.NewTicker(sessionCleanupInterval)
+		defer ticker.Stop()
+		slog.Info("session cleanup goroutine started",
+			"interval", sessionCleanupInterval,
+			"max_age", sessionMaxAge,
+		)
+		for {
+			select {
+			case <-ticker.C:
+				deleted, err := store.DeleteExpiredSessions(context.Background(), sessionMaxAge)
+				if err != nil {
+					slog.Error("session cleanup failed", "error", err)
+				} else if deleted > 0 {
+					slog.Info("expired sessions cleaned up", "deleted", deleted)
+				}
+			case <-quit:
+				return
+			}
+		}
+	}()
+
 	sig := <-quit
 	slog.Info("shutdown signal received", "signal", sig.String())
 

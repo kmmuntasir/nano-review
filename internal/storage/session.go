@@ -73,4 +73,8 @@ type SessionStore interface {
 
 	// DeleteSession removes a session record.
 	DeleteSession(ctx context.Context, id string) error
+
+	// DeleteExpiredSessions removes completed/failed/timed_out/cancelled sessions
+	// older than the given threshold.
+	DeleteExpiredSessions(ctx context.Context, olderThan time.Duration) (int64, error)
 }

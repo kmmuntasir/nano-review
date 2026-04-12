@@ -194,3 +194,15 @@ func (s *sqliteStore) DeleteSession(ctx context.Context, id string) error {
 	}
 	return nil
 }
+
+func (s *sqliteStore) DeleteExpiredSessions(ctx context.Context, olderThan time.Duration) (int64, error) {
+	cutoff := time.Now().UTC().Add(-olderThan).Format(time.RFC3339)
+	query := `DELETE FROM sessions
+	          WHERE status IN ('completed', 'failed', 'timed_out', 'cancelled')
+	            AND updated_at < ?`
+	res, err := s.db.ExecContext(ctx, query, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("delete expired sessions: %w", err)
+	}
+	return res.RowsAffected()
+}
