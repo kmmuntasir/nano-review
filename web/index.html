@@ -1081,7 +1081,11 @@
             }
         };
 
-        Auth.fetchSession();
+        Auth.init = function() {
+            return Auth.fetchSession();
+        };
+
+        Auth.init();
 
         // --- Auth nav rendering ---
         var authNav = document.getElementById("auth-nav");
@@ -1924,6 +1928,7 @@
         // Router
         // =========================================================
         function route() {
+            if (!Auth.checked() || !Auth.authenticated()) return;
             ws.unsubscribe("all");
             var hash = location.hash || "#/dashboard";
             updateNav(hash);
@@ -2225,7 +2230,20 @@
         }
 
         // --- Init ---
-        route();
+        Auth.init().then(function() {
+            if (!Auth.authenticated()) {
+                app.innerHTML =
+                    '<div class="empty">' +
+                        '<h2>Welcome to Nano Review</h2>' +
+                        '<p style="margin-bottom:1rem;color:var(--text-secondary)">Sign in to view review activity.</p>' +
+                        '<button class="btn" id="init-login-btn">Sign in with Google</button>' +
+                    '</div>';
+                var btn = document.getElementById("init-login-btn");
+                if (btn) btn.addEventListener("click", function() { Auth.login(); });
+                return;
+            }
+            route();
+        });
     })();
     </script>
 </body>
