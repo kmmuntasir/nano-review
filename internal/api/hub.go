@@ -22,9 +22,10 @@ type WSSubscription struct {
 
 // WSClient represents a single WebSocket connection managed by the Hub.
 type WSClient struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	userID string
 }
 
 // Hub manages WebSocket clients and topic-based message broadcasting.
