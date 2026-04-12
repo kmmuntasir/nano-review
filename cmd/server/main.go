@@ -291,10 +291,10 @@ func main() {
 		slog.Warn("SESSION_SECRET not set, falling back to WEBHOOK_SECRET")
 	}
 
-	sessionMaxAge := 24.0
+	maxAgeHours := 24.0
 	if v := os.Getenv("SESSION_MAX_AGE_HOURS"); v != "" {
 		if f, err := strconv.ParseFloat(v, 64); err == nil && f > 0 {
-			sessionMaxAge = f
+			maxAgeHours = f
 		} else {
 			slog.Error("invalid SESSION_MAX_AGE_HOURS, using default", "value", v, "error", err)
 		}
@@ -305,7 +305,7 @@ func main() {
 		cookieDomains = []string{d}
 	}
 
-	sessionMgr := auth.NewSessionManager([]byte(sessionSecret), sessionMaxAge, cookieDomains)
+	sessionMgr := auth.NewSessionManager([]byte(sessionSecret), maxAgeHours, cookieDomains)
 
 	oauthCfg := &auth.OAuthConfig{
 		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
