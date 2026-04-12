@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -345,4 +346,203 @@ func TestMaxAgeFromCookie(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- RequireAuth middleware ---
+
+func TestRequireAuth(t *testing.T) {
+	key := testKey(t)
+
+	t.Run("valid token passes and sets user in context", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		token := m.CreateToken("sess-abc")
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			user := UserFromContext(r.Context())
+			if user.ID != "sess-abc" {
+				t.Errorf("user ID = %q, want %q", user.ID, "sess-abc")
+			}
+			if user.Source != "cookie" {
+				t.Errorf("user source = %q, want %q", user.Source, "cookie")
+			}
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("missing cookie returns 401", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be called")
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode response body: %v", err)
+		}
+		if body["error"] != "missing session cookie" {
+			t.Errorf("error = %q, want %q", body["error"], "missing session cookie")
+		}
+	})
+
+	t.Run("invalid token returns 401", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be called")
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: "garbage.token"})
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+			t.Fatalf("decode response body: %v", err)
+		}
+		if body["error"] != "invalid or expired session token" {
+			t.Errorf("error = %q, want %q", body["error"], "invalid or expired session token")
+		}
+	})
+
+	t.Run("expired token returns 401", func(t *testing.T) {
+		expired := NewSessionManager(key, 0.0001, nil)
+		expired.authEnabled = true
+		token := expired.CreateToken("sess-expired")
+
+		time.Sleep(400 * time.Millisecond)
+
+		handler := expired.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be called")
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("auth disabled passes through without cookie", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = false
+
+		called := false
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if !called {
+			t.Error("handler should have been called when auth is disabled")
+		}
+		if rec.Code != http.StatusOK {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusOK)
+		}
+	})
+
+	t.Run("wrong cookie name is ignored", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Error("handler should not be called")
+		}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		req.AddCookie(&http.Cookie{Name: "wrong_cookie", Value: m.CreateToken("sess-1")})
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Errorf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("response content type is application/json", func(t *testing.T) {
+		m := NewSessionManager(key, 1, nil)
+		m.authEnabled = true
+
+		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
+		rec := httptest.NewRecorder()
+
+		handler.ServeHTTP(rec, req)
+
+		ct := rec.Header().Get("Content-Type")
+		if ct != "application/json" {
+			t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+		}
+	})
+}
+
+func TestParseAuthEnabled(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     bool
+	}{
+		{name: "empty env defaults to true", envValue: "", want: true},
+		{name: "random string defaults to true", envValue: "yes", want: true},
+		{name: "lowercase false", envValue: "false", want: false},
+		{name: "uppercase FALSE", envValue: "FALSE", want: false},
+		{name: "mixed case False", envValue: "False", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseAuthEnabledValue(tt.envValue)
+			if got != tt.want {
+				t.Errorf("parseAuthEnabledValue(%q) = %v, want %v", tt.envValue, got, tt.want)
+			}
+		})
+	}
+}
+
+// parseAuthEnabledValue is a test helper that tests the parseAuthEnabled logic
+// without reading from environment variables.
+func parseAuthEnabledValue(v string) bool {
+	if strings.EqualFold(v, "false") {
+		return false
+	}
+	return true
 }

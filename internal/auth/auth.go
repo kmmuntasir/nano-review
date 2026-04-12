@@ -8,7 +8,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -40,6 +42,7 @@ type SessionManager struct {
 	hmacKey        []byte
 	maxAge         time.Duration
 	allowedDomains []string
+	authEnabled    bool
 }
 
 // NewSessionManager creates a SessionManager with the given HMAC key, max session
@@ -62,7 +65,19 @@ func NewSessionManager(hmacKey []byte, maxAgeHours float64, allowedDomains []str
 		hmacKey:        hmacKey,
 		maxAge:         maxAge,
 		allowedDomains: allowedDomains,
+		authEnabled:    parseAuthEnabled(),
 	}
+}
+
+// parseAuthEnabled reads AUTH_ENABLED from the environment.
+// Returns true unless the value is exactly "false" (case-insensitive).
+func parseAuthEnabled() bool {
+	v := os.Getenv("AUTH_ENABLED")
+	if strings.EqualFold(v, "false") {
+		slog.Info("authentication disabled (AUTH_ENABLED=false)")
+		return false
+	}
+	return true
 }
 
 // CreateToken generates a signed, stateless session token containing the session ID
@@ -172,6 +187,51 @@ func (m *SessionManager) CookieName() string {
 // MaxAge returns the configured maximum session age.
 func (m *SessionManager) MaxAge() time.Duration {
 	return m.maxAge
+}
+
+// AuthEnabled returns whether authentication is enabled for this SessionManager.
+func (m *SessionManager) AuthEnabled() bool {
+	return m.authEnabled
+}
+
+// RequireAuth returns an HTTP middleware that validates the nano_session cookie.
+// If authentication is disabled (AUTH_ENABLED=false), it passes requests through
+// without checking. Otherwise it reads the cookie, validates the token, and
+// attaches the User to the request context. Returns 401 JSON on failure.
+func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !m.authEnabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		cookie, err := r.Cookie(cookieName)
+		if err != nil {
+			writeUnauthorized(w, "missing session cookie")
+			return
+		}
+
+		sessionID, err := m.ValidateToken(cookie.Value)
+		if err != nil {
+			writeUnauthorized(w, "invalid or expired session token")
+			return
+		}
+
+		user := User{
+			ID:     sessionID,
+			Source: "cookie",
+		}
+
+		ctx := ContextWithUser(r.Context(), user)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// writeUnauthorized writes a 401 JSON error response.
+func writeUnauthorized(w http.ResponseWriter, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusUnauthorized)
+	w.Write([]byte(`{"error":"` + msg + `"}`))
 }
 
 // computeSignature generates an HMAC-SHA256 signature over the session ID,
