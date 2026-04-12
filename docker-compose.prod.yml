@@ -1,7 +1,82 @@
+# ============================================================================
+# Nano Review - Production Docker Compose Configuration
+# ============================================================================
+#
+# DEPLOYMENT REQUIREMENTS:
+#
+# 1. HTTPS/Termination:
+#    - This container listens on HTTP port 8080 internally
+#    - An external reverse proxy (nginx, Caddy, Traefik, cloud load balancer)
+#      MUST terminate HTTPS in front of this service
+#    - Expose port 8080 only via the reverse proxy or Docker network
+#    - Configure reverse proxy to forward /review endpoint to this container
+#
+# 2. Secrets Management:
+#    - NEVER commit .env files or secrets to version control
+#    - Use Docker Secrets, Swarm configs, or your cloud provider's secret manager
+#    - For Docker Secrets: use ${SECRET_NAME} syntax and deploy via Swarm/K8s
+#    - For single-host: use .env file with restricted permissions (chmod 600)
+#
+# 3. Required Secrets:
+#    - WEBHOOK_SECRET: Shared secret with GitHub Actions for webhook auth
+#    - ANTHROPIC_AUTH_TOKEN: Claude API token for running reviews
+#    - GITHUB_PAT: GitHub Personal Access Token with 'repo' scope (minimal)
+#
+# 4. Monitoring:
+#    - Healthcheck endpoint: GET /review (returns 405 Method Not Allowed)
+#    - Logs volume: review-logs:/app/logs (rotated JSON logs)
+#    - Data volume: review-data:/app/data (SQLite database)
+#
+# USAGE:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# ============================================================================
+
 services:
   nano-review:
     container_name: nano_review_prod
+    image: nano-review:latest
     restart: always
+
+    # ---------------------------------------------------------------------------
+    # ENVIRONMENT VARIABLES
+    # ---------------------------------------------------------------------------
+    # All secrets and configuration MUST be injected via environment variables.
+    # Create a .env file in the same directory with the values below.
+    #
+    # Required Variables:
+    #   WEBHOOK_SECRET              Shared secret for X-Webhook-Secret header auth
+    #   ANTHROPIC_AUTH_TOKEN        Claude API token (sk-ant-...)
+    #   GITHUB_PAT                  GitHub PAT with 'repo' scope (ghp_...)
+    #
+    # Optional Variables (with defaults):
+    #   PORT                        Server port (default: 8080)
+    #   CLAUDE_CODE_PATH            Path to claude binary (default: auto-detected)
+    #   MAX_TURNS                   Max agentic turns per review (default: 30)
+    #   CLAUDE_MODEL                Model for reviews: haiku|sonnet|opus (default: sonnet)
+    #   MAX_REVIEW_DURATION         Review timeout in seconds (default: 600)
+    #   MAX_RETRIES                 Retry attempts for transient failures (default: 2)
+    #
+    # Optional Variables (Advanced):
+    #   ANTHROPIC_BASE_URL          Custom API endpoint (e.g., proxy.z.ai)
+    #   API_TIMEOUT_MS              Claude API timeout in milliseconds (default: 300000)
+    #   ANTHROPIC_DEFAULT_HAIKU_MODEL   Override haiku model name
+    #   ANTHROPIC_DEFAULT_SONNET_MODEL  Override sonnet model name
+    #   ANTHROPIC_DEFAULT_OPUS_MODEL    Override opus model name
+    #   CLAUDE_CODE_DISABLE_1M_CONTEXT  Disable 1M context window (set to 1)
+    #   DISABLE_TELEMETRY           Disable Claude telemetry (set to 1)
+    #   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC  Reduce background network calls (set to 1)
+    #   DATABASE_PATH               SQLite database path (default: /app/data/reviews.db)
+    # ---------------------------------------------------------------------------
+    env_file:
+      - .env
+
+    # ---------------------------------------------------------------------------
+    # RESOURCE LIMITS
+    # ---------------------------------------------------------------------------
+    # Adjust based on expected load and review complexity.
+    # Larger reviews with many files may require increased memory limits.
+    # ---------------------------------------------------------------------------
     deploy:
       resources:
         limits:
@@ -10,14 +85,51 @@ services:
         reservations:
           cpus: '0.5'
           memory: 512M
+
+    # ---------------------------------------------------------------------------
+    # HEALTHCHECK
+    # ---------------------------------------------------------------------------
+    # Probes the /review endpoint every 30s.
+    # Expected: 405 Method Not Allowed (endpoint exists, wrong method)
+    # Container restarts after 3 consecutive failures.
+    # ---------------------------------------------------------------------------
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/review"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+    # ---------------------------------------------------------------------------
+    # LOGGING
+    # ---------------------------------------------------------------------------
+    # JSON driver with rotation.
+    # Application logs are additionally written to /app/logs volume.
+    # ---------------------------------------------------------------------------
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+    # ---------------------------------------------------------------------------
+    # VOLUMES
+    # ---------------------------------------------------------------------------
+    # review-logs:  Structured JSON logs with lumberjack rotation (10MB, 7-day retention)
+    # review-data:  SQLite database for review history and metrics
+    # ---------------------------------------------------------------------------
+    volumes:
+      - review-logs:/app/logs
+      - review-data:/app/data
+
+# ---------------------------------------------------------------------------
+# PERSISTENT VOLUMES
+# ---------------------------------------------------------------------------
+# These volumes survive container restarts and redeployments.
+# Backup review-data regularly for review history preservation.
+# ---------------------------------------------------------------------------
+volumes:
+  review-logs:
+    driver: local
+  review-data:
+    driver: local
