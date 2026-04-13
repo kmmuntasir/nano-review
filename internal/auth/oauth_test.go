@@ -252,6 +252,62 @@ func TestIsEmailAllowed(t *testing.T) {
 	}
 }
 
+// --- isEmailAllowed individual test functions (Task A5) ---
+
+func TestIsEmailAllowedExactMatch(t *testing.T) {
+	allowed := []string{"example.com"}
+	if !isEmailAllowed("user@example.com", allowed) {
+		t.Error("expected true for exact domain match")
+	}
+}
+
+func TestIsEmailAllowedCaseInsensitive(t *testing.T) {
+	allowed := []string{"example.com"}
+	if !isEmailAllowed("user@Example.COM", allowed) {
+		t.Error("expected true for case-insensitive domain match")
+	}
+}
+
+func TestIsEmailAllowedLeadingAtSymbol(t *testing.T) {
+	allowed := []string{"@example.com"}
+	if !isEmailAllowed("user@example.com", allowed) {
+		t.Error("expected true when allowed list has @ prefix")
+	}
+}
+
+func TestIsEmailAllowedDomainNotInList(t *testing.T) {
+	allowed := []string{"example.com"}
+	if isEmailAllowed("user@other.org", allowed) {
+		t.Error("expected false for domain not in allowed list")
+	}
+}
+
+func TestIsEmailAllowedInvalidEmailNoAt(t *testing.T) {
+	allowed := []string{"example.com"}
+	if isEmailAllowed("invalid-email", allowed) {
+		t.Error("expected false for email without @ sign")
+	}
+}
+
+func TestIsEmailAllowedInvalidEmailEmpty(t *testing.T) {
+	allowed := []string{"example.com"}
+	if isEmailAllowed("", allowed) {
+		t.Error("expected false for empty email string")
+	}
+}
+
+func TestIsEmailAllowedEmptyListAllowsAll(t *testing.T) {
+	if !isEmailAllowed("user@anywhere.com", []string{}) {
+		t.Error("expected true when allowed list is empty")
+	}
+}
+
+func TestIsEmailAllowedNilListAllowsAll(t *testing.T) {
+	if !isEmailAllowed("user@anywhere.com", nil) {
+		t.Error("expected true when allowed list is nil")
+	}
+}
+
 // --- OAuth State CSRF protection ---
 
 func TestOAuthStateCSRF(t *testing.T) {
