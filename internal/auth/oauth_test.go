@@ -3,6 +3,7 @@ package auth
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHandleGoogleLogin_MethodNotAllowed(t *testing.T) {
@@ -1014,5 +1016,431 @@ func TestHandleSessionInfoWhenAuthDisabled(t *testing.T) {
 		if _, exists := body[field]; exists {
 			t.Errorf("unexpected field %q in auth-disabled response", field)
 		}
+	}
+}
+
+// createExpiredToken builds a validly-signed token whose timestamp is older
+// than maxAge, causing ValidateToken to return ErrExpiredToken.
+func createExpiredToken(sm *SessionManager) string {
+	sessionID := "expired-user"
+	info := TokenUserInfo{Email: "old@example.com", Name: "Old User", Picture: "https://example.com/old.jpg"}
+	userInfoJSON, _ := json.Marshal(info)
+
+	ts := make([]byte, 8)
+	binary.BigEndian.PutUint64(ts, uint64(time.Now().Add(-48*time.Hour).UTC().Unix()))
+
+	randBytes := make([]byte, randomBytesLength)
+	rand.Read(randBytes)
+
+	sig := sm.computeSignature(sessionID, ts, randBytes, userInfoJSON)
+
+	return encodeSegment(sessionID) + "." +
+		encodeSegment(string(ts)) +
+		"." + encodeSegment(string(randBytes)) +
+		"." + encodeSegment(string(userInfoJSON)) +
+		"." + encodeSegment(string(sig))
+}
+
+func TestHandleSessionInfoAuthDisabled(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = false
+	handler := HandleSessionInfo(sm)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+
+	v, ok := body["auth_enabled"]
+	if !ok {
+		t.Fatal("expected auth_enabled field in response")
+	}
+	if v != false {
+		t.Errorf("expected auth_enabled=false, got %v", v)
+	}
+	if len(body) != 1 {
+		t.Errorf("expected only auth_enabled field, got %v", body)
+	}
+}
+
+func TestHandleSessionInfoNoCredentials(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	t.Run("no cookie or query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object, got %v", body)
+		}
+	})
+
+	t.Run("empty token query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me?token=", nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for empty token query param, got %v", body)
+		}
+	})
+}
+
+func TestHandleSessionInfoInvalidToken(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	t.Run("garbage token in cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: "not.a.valid.token"})
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for garbage token, got %v", body)
+		}
+	})
+
+	t.Run("garbage token in query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me?token=garbage", nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for garbage query token, got %v", body)
+		}
+	})
+
+	t.Run("tampered signature", func(t *testing.T) {
+		validToken := sm.CreateToken("user-1", TokenUserInfo{
+			Email: "test@example.com", Name: "Test", Picture: "https://example.com/p.jpg",
+		})
+		// Flip last character of the signature segment.
+		parts := strings.Split(validToken, ".")
+		sig := []byte(parts[4])
+		sig[len(sig)-1] ^= 0xFF
+		tampered := strings.Join([]string{parts[0], parts[1], parts[2], parts[3], string(sig)}, ".")
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: tampered})
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for tampered signature, got %v", body)
+		}
+	})
+}
+
+func TestHandleSessionInfoExpiredToken(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	token := createExpiredToken(sm)
+
+	t.Run("expired token in cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for expired token, got %v", body)
+		}
+	})
+
+	t.Run("expired token in query param", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me?token="+token, nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for expired query token, got %v", body)
+		}
+	})
+}
+
+func TestHandleSessionInfoValidTokenCookie(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	token := sm.CreateToken("google-abc", TokenUserInfo{
+		Email:   "alice@example.com",
+		Name:    "Alice Johnson",
+		Picture: "https://example.com/alice.jpg",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["id"] != "google-abc" {
+		t.Errorf("expected id=google-abc, got %s", body["id"])
+	}
+	if body["email"] != "alice@example.com" {
+		t.Errorf("expected email=alice@example.com, got %s", body["email"])
+	}
+	if body["name"] != "Alice Johnson" {
+		t.Errorf("expected name=Alice Johnson, got %s", body["name"])
+	}
+	if body["picture"] != "https://example.com/alice.jpg" {
+		t.Errorf("expected picture=https://example.com/alice.jpg, got %s", body["picture"])
+	}
+}
+
+func TestHandleSessionInfoValidTokenQueryParam(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	token := sm.CreateToken("google-xyz", TokenUserInfo{
+		Email:   "bob@example.com",
+		Name:    "Bob Smith",
+		Picture: "https://example.com/bob.jpg",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me?token="+token, nil)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	if body["id"] != "google-xyz" {
+		t.Errorf("expected id=google-xyz, got %s", body["id"])
+	}
+	if body["email"] != "bob@example.com" {
+		t.Errorf("expected email=bob@example.com, got %s", body["email"])
+	}
+	if body["name"] != "Bob Smith" {
+		t.Errorf("expected name=Bob Smith, got %s", body["name"])
+	}
+	if body["picture"] != "https://example.com/bob.jpg" {
+		t.Errorf("expected picture URL, got %s", body["picture"])
+	}
+}
+
+func TestHandleSessionInfoCookiePrecedence(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	cookieToken := sm.CreateToken("cookie-user", TokenUserInfo{
+		Email: "cookie@example.com", Name: "Cookie User", Picture: "https://example.com/cookie.jpg",
+	})
+	queryToken := sm.CreateToken("query-user", TokenUserInfo{
+		Email: "query@example.com", Name: "Query User", Picture: "https://example.com/query.jpg",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me?token="+queryToken, nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: cookieToken})
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	// Cookie should take precedence over query param.
+	if body["id"] != "cookie-user" {
+		t.Errorf("expected cookie to take precedence, got id=%s", body["id"])
+	}
+	if body["email"] != "cookie@example.com" {
+		t.Errorf("expected cookie email, got %s", body["email"])
+	}
+}
+
+func TestHandleSessionInfoResponseStructure(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	token := sm.CreateToken("struct-user", TokenUserInfo{
+		Email:   "struct@example.com",
+		Name:    "Struct Test",
+		Picture: "https://example.com/struct.jpg",
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d", w.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+
+	requiredFields := []string{"id", "email", "name", "picture"}
+	for _, field := range requiredFields {
+		val, ok := body[field]
+		if !ok {
+			t.Errorf("missing required field %q in response", field)
+			continue
+		}
+		strVal, ok := val.(string)
+		if !ok || strVal == "" {
+			t.Errorf("field %q should be a non-empty string, got %v", field, val)
+		}
+	}
+
+	// Verify no extra fields.
+	if len(body) != len(requiredFields) {
+		t.Errorf("expected exactly %d fields, got %d: %v", len(requiredFields), len(body), body)
+	}
+}
+
+func TestHandleSessionInfoContentType(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	tests := []struct {
+		name    string
+		setup   func(*http.Request)
+	}{
+		{"unauthenticated GET", func(r *http.Request) {}},
+		{"authenticated GET", func(r *http.Request) {
+			token := sm.CreateToken("ct-user", TokenUserInfo{
+				Email: "ct@example.com", Name: "CT", Picture: "https://example.com/ct.jpg",
+			})
+			r.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		}},
+		{"auth disabled", func(r *http.Request) {
+			sm.authEnabled = false
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset authEnabled between subtests.
+			sm.authEnabled = true
+			req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+			tt.setup(req)
+			w := httptest.NewRecorder()
+
+			handler(w, req)
+
+			ct := w.Header().Get("Content-Type")
+			if ct != "application/json" {
+				t.Errorf("expected Content-Type application/json, got %s", ct)
+			}
+		})
+	}
+}
+
+func TestHandleSessionInfoMethodNotAllowed(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	methods := []string{http.MethodPost, http.MethodPut, http.MethodDelete, http.MethodPatch}
+	for _, method := range methods {
+		t.Run(method, func(t *testing.T) {
+			req := httptest.NewRequest(method, "/auth/me", nil)
+			w := httptest.NewRecorder()
+
+			handler(w, req)
+
+			if w.Code != http.StatusMethodNotAllowed {
+				t.Errorf("expected status 405 for %s, got %d", method, w.Code)
+			}
+		})
 	}
 }
