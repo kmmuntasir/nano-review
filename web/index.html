@@ -2096,54 +2096,41 @@
         function renderDashboard() {
             app.innerHTML = '<div class="loading">Loading metrics</div>';
             ws.subscribe("all");
-            Promise.all([api.getMetrics(), api.listReviews({ limit: 10 })]).then(function(results) {
+            Promise.all([
+                api.getMetrics(),
+                api.listReviews({ status: "pending", limit: 5 }),
+                api.listReviews({ status: "running", limit: 5 })
+            ]).then(function(results) {
                 var m = results[0];
-                var r = results[1];
-                renderDashboardContent(m, r.reviews || []);
-
-                // Register WebSocket handler for dashboard updates
+                var pending = (results[1] && results[1].reviews) || [];
+                var running = (results[2] && results[2].reviews) || [];
+                renderDashboardContent(m, pending, running);
                 setupDashboardWebSocketHandlers();
             }).catch(function() {
                 app.innerHTML = '<div class="empty">Failed to load dashboard data</div>';
             });
         }
 
-        function renderDashboardContent(m, reviews) {
-            // Store in state for WebSocket updates
-            dashboardState.metrics = m;
-            dashboardState.reviews = reviews || [];
+        function renderDashboardContent(metrics, pendingReviews, runningReviews) {
+            dashboardState.metrics = metrics;
+            dashboardState.pendingReviews = pendingReviews || [];
+            dashboardState.runningReviews = runningReviews || [];
 
             var html = '<div class="stats-grid">' +
-                statCard("Total Reviews", m.total_reviews || 0) +
-                statCard("Success Rate", formatPercent(m.success_count || 0, m.total_reviews || 0)) +
-                statCard("Avg Duration", formatDuration(m.avg_duration_ms || 0)) +
-                statCard("Reviews Today", m.reviews_today || 0) +
+                statCard("Total Reviews", metrics.total_reviews || 0) +
+                statCard("Success Rate", formatPercent(metrics.success_count || 0, metrics.total_reviews || 0)) +
+                statCard("Avg Duration", formatDuration(metrics.avg_duration_ms || 0)) +
+                statCard("Reviews Today", metrics.reviews_today || 0) +
                 '</div>' +
                 '<div class="table-wrap">' +
-                '<div class="table-header"><h2>Recent Reviews</h2></div>' +
-                reviewTable(reviews) +
+                '<div class="table-header"><h2>Status Distribution</h2></div>' +
+                statusBar(metrics) +
+                '</div>' +
+                '<div class="table-wrap">' +
+                '<div class="table-header"><h2>Active Reviews</h2></div>' +
+                activeReviewsSection(pendingReviews, runningReviews) +
                 '</div>';
             app.innerHTML = html;
-        }
-
-        function updateReviewsTable() {
-            var tableBody = document.querySelector("table tbody");
-            if (!tableBody) return;
-
-            var html = "";
-            for (var i = 0; i < dashboardState.reviews.length; i++) {
-                var r = dashboardState.reviews[i];
-                html += '<tr>' +
-                    '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
-                    '<td>' + esc(basename(r.repo)) + '</td>' +
-                    '<td>' + (r.pr_number || '-') + '</td>' +
-                    '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
-                    '<td>' + formatDuration(r.duration_ms) + '</td>' +
-                    '<td>' + formatDate(r.created_at) + '</td>' +
-                    '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
-                    '</tr>';
-            }
-            tableBody.innerHTML = html;
         }
 
         function updateMetricsCards(metrics) {
@@ -2164,7 +2151,6 @@
         }
 
         function setupDashboardWebSocketHandlers() {
-            // Clean up any existing handler
             if (dashboardState.onReviewUpdate) {
                 ws.off("review_update", dashboardState.onReviewUpdate);
             }
@@ -2172,84 +2158,65 @@
                 ws.off("metrics_update", dashboardState.onMetricsUpdate);
             }
 
-            // Handle review status updates and new reviews
             dashboardState.onReviewUpdate = function(msg) {
-                var runId = msg.run_id;
-                var status = msg.status;
-
-                // Prefer embedded review data to avoid API call
                 var reviewData = msg.review;
+                var newStatus = msg.status;
 
                 if (reviewData) {
-                    // Full review data is embedded - use it directly
-                    var existingIdx = -1;
-                    for (var i = 0; i < dashboardState.reviews.length; i++) {
-                        if (dashboardState.reviews[i].run_id === runId) {
-                            existingIdx = i;
+                    var wasActive = false;
+                    var removeIdx;
+
+                    // Check running reviews
+                    for (var i = 0; i < dashboardState.runningReviews.length; i++) {
+                        if (dashboardState.runningReviews[i].run_id === msg.run_id) {
+                            wasActive = true;
+                            removeIdx = i;
                             break;
                         }
                     }
-
-                    if (existingIdx >= 0) {
-                        // Update existing review
-                        Object.assign(dashboardState.reviews[existingIdx], reviewData);
-                    } else {
-                        // Add new review at beginning
-                        dashboardState.reviews.unshift(reviewData);
-                        if (dashboardState.reviews.length > 10) {
-                            dashboardState.reviews = dashboardState.reviews.slice(0, 10);
-                        }
-                    }
-                    updateReviewsTable();
-                } else {
-                    // Fallback: fetch via API (Phase 1 behavior)
-                    var existingIdx = -1;
-                    for (var i = 0; i < dashboardState.reviews.length; i++) {
-                        if (dashboardState.reviews[i].run_id === runId) {
-                            existingIdx = i;
-                            break;
-                        }
+                    if (wasActive) {
+                        dashboardState.runningReviews.splice(removeIdx, 1);
                     }
 
-                    if (existingIdx >= 0) {
-                        // Update existing review in place
-                        dashboardState.reviews[existingIdx].status = status;
-                        if (msg.duration_ms !== undefined) {
-                            dashboardState.reviews[existingIdx].duration_ms = msg.duration_ms;
-                        }
-                        updateReviewsTable();
-                    } else {
-                        // New review - fetch full details and add to list
-                        api.getReview(runId).then(function(r) {
-                            if (r) {
-                                dashboardState.reviews.unshift(r);
-                                if (dashboardState.reviews.length > 10) {
-                                    dashboardState.reviews = dashboardState.reviews.slice(0, 10);
-                                }
-                                updateReviewsTable();
+                    // Check pending reviews
+                    if (!wasActive) {
+                        for (var i = 0; i < dashboardState.pendingReviews.length; i++) {
+                            if (dashboardState.pendingReviews[i].run_id === msg.run_id) {
+                                wasActive = true;
+                                removeIdx = i;
+                                break;
                             }
-                        }).catch(function() {
-                            // Fetch failed, still add with available data
-                            dashboardState.reviews.unshift({
-                                run_id: runId,
-                                status: status,
-                                created_at: new Date().toISOString()
-                            });
-                            if (dashboardState.reviews.length > 10) {
-                                dashboardState.reviews = dashboardState.reviews.slice(0, 10);
-                            }
-                            updateReviewsTable();
-                        });
+                        }
+                        if (wasActive) {
+                            dashboardState.pendingReviews.splice(removeIdx, 1);
+                        }
                     }
 
+                    // If review is now active (pending or running), add it
+                    if (newStatus === "running") {
+                        dashboardState.runningReviews.unshift(reviewData);
+                        if (dashboardState.runningReviews.length > 5) {
+                            dashboardState.runningReviews = dashboardState.runningReviews.slice(0, 5);
+                        }
+                    } else if (newStatus === "pending") {
+                        dashboardState.pendingReviews.unshift(reviewData);
+                        if (dashboardState.pendingReviews.length > 5) {
+                            dashboardState.pendingReviews = dashboardState.pendingReviews.slice(0, 5);
+                        }
+                    }
+
+                    updateActiveReviews();
                 }
+
+                // Status distribution changes with every review update
+                updateStatusDistribution();
             };
 
-            // Handle metrics updates
             dashboardState.onMetricsUpdate = function(msg) {
                 if (msg.metrics) {
                     dashboardState.metrics = msg.metrics;
                     updateMetricsCards(msg.metrics);
+                    updateStatusDistribution();
                 }
             };
 
