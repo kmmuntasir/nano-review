@@ -521,6 +521,45 @@ func TestHandleSessionInfoPublic(t *testing.T) {
 	})
 }
 
+func TestHandleLogout(t *testing.T) {
+	sm := newTestSessionManager(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+
+	HandleLogout(sm)(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Errorf("expected status 302, got %d", w.Code)
+	}
+
+	loc := w.Header().Get("Location")
+	if loc != "/" {
+		t.Errorf("expected redirect to %q, got %q", "/", loc)
+	}
+
+	// Verify both cookies are cleared.
+	cookies := w.Result().Cookies()
+	found := make(map[string]bool)
+	for _, c := range cookies {
+		if c.Name == cookieName || c.Name == tokenCookieName {
+			if c.MaxAge != -1 {
+				t.Errorf("cookie %q: expected MaxAge=-1, got %d", c.Name, c.MaxAge)
+			}
+			if c.Value != "" {
+				t.Errorf("cookie %q: expected empty value, got %q", c.Name, c.Value)
+			}
+			found[c.Name] = true
+		}
+	}
+	if !found[cookieName] {
+		t.Error("expected nano_session cookie to be cleared")
+	}
+	if !found[tokenCookieName] {
+		t.Error("expected nano_session_token cookie to be cleared")
+	}
+}
+
 func TestHandleSessionInfoWhenAuthDisabled(t *testing.T) {
 	sm := newTestSessionManager(t)
 	sm.authEnabled = false
