@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +14,10 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 )
+
+// oauthStateCookieName is the name of the short-lived CSRF state cookie
+// used during the OAuth flow.
+const oauthStateCookieName = "nano_oauth_state"
 
 // googleScopes are the OAuth scopes requested during Google login.
 // openid and email are sufficient for identifying users.
@@ -91,11 +98,36 @@ func HandleGoogleLogin(cfg *OAuthConfig) http.HandlerFunc {
 			return
 		}
 
-		// Optional state parameter for CSRF protection — read from query if
-		// provided by the frontend, otherwise generate a random one.
-		state := r.URL.Query().Get("state")
+		// TODO: Add rate limiting to prevent OAuth abuse.
 
-		url := endpoint.AuthCodeURL(state, oauth2.AccessTypeOffline)
+		// Generate CSRF token (32 random bytes, base64url-encoded).
+		csrfBytes := make([]byte, 32)
+		if _, err := rand.Read(csrfBytes); err != nil {
+			slog.Error("failed to generate CSRF token", "error", err)
+			http.Error(w, `{"error":"internal server error"}`, http.StatusInternalServerError)
+			return
+		}
+		csrfToken := base64.RawURLEncoding.EncodeToString(csrfBytes)
+
+		// Append frontend redirect path from query parameter.
+		redirectPath := r.URL.Query().Get("state")
+		stateValue := csrfToken
+		if redirectPath != "" {
+			stateValue = csrfToken + ":" + redirectPath
+		}
+
+		// Store state in a short-lived cookie for CSRF verification.
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthStateCookieName,
+			Value:    stateValue,
+			Path:     "/",
+			Secure:   cfg.SessionManager.Secure(),
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   300,
+		})
+
+		url := endpoint.AuthCodeURL(stateValue, oauth2.AccessTypeOffline)
 		slog.Info("redirecting to Google OAuth", "redirect_url", url)
 
 		http.Redirect(w, r, url, http.StatusTemporaryRedirect)
@@ -116,6 +148,44 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 		if endpoint == nil {
 			http.Error(w, `{"error":"OAuth is not configured"}`, http.StatusNotImplemented)
 			return
+		}
+
+		// Verify CSRF state parameter.
+		stateParam := r.URL.Query().Get("state")
+		if stateParam == "" {
+			http.Error(w, `{"error":"missing state parameter"}`, http.StatusBadRequest)
+			return
+		}
+
+		stateCookie, err := r.Cookie(oauthStateCookieName)
+		if err != nil {
+			http.Error(w, `{"error":"missing state cookie"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Split both on ":" — first segment is CSRF token, must match.
+		csrfParam := strings.SplitN(stateParam, ":", 2)[0]
+		csrfCookie := strings.SplitN(stateCookie.Value, ":", 2)[0]
+		if !hmac.Equal([]byte(csrfParam), []byte(csrfCookie)) {
+			http.Error(w, `{"error":"invalid state parameter"}`, http.StatusBadRequest)
+			return
+		}
+
+		// Clear state cookie (single use).
+		http.SetCookie(w, &http.Cookie{
+			Name:     oauthStateCookieName,
+			Value:    "",
+			Path:     "/",
+			Secure:   cfg.SessionManager.Secure(),
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			MaxAge:   -1,
+		})
+
+		// Extract redirect path from state (after the first ":").
+		redirectPath := "/"
+		if parts := strings.SplitN(stateParam, ":", 2); len(parts) == 2 && parts[1] != "" {
+			redirectPath = parts[1]
 		}
 
 		code := r.URL.Query().Get("code")
@@ -177,7 +247,7 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 		cfg.SessionManager.SetCookie(w, sessionToken)
 		cfg.SessionManager.SetTokenCookie(w, sessionToken)
 
-		http.Redirect(w, r, "/", http.StatusFound)
+		http.Redirect(w, r, redirectPath, http.StatusFound)
 	}
 }
 

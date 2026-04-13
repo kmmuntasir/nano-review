@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -87,7 +88,7 @@ func TestHandleGoogleLogin_WithState(t *testing.T) {
 		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/auth/login?state=csrf-token-123", nil)
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?state=/dashboard", nil)
 	w := httptest.NewRecorder()
 
 	HandleGoogleLogin(cfg)(w, req)
@@ -97,8 +98,34 @@ func TestHandleGoogleLogin_WithState(t *testing.T) {
 	}
 
 	loc := w.Header().Get("Location")
-	if !strings.Contains(loc, "state=csrf-token-123") {
-		t.Errorf("expected state=csrf-token-123 in redirect URL, got %s", loc)
+	if !strings.Contains(loc, "state=") {
+		t.Fatalf("expected state parameter in redirect URL, got %s", loc)
+	}
+
+	// Verify nano_oauth_state cookie is set with the combined state value.
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie to be set")
+	}
+	if !strings.Contains(stateCookie.Value, ":/dashboard") {
+		t.Errorf("expected cookie to contain ':/dashboard', got %s", stateCookie.Value)
+	}
+
+	// Verify the URL-decoded state in the redirect matches the cookie value.
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("failed to parse redirect URL: %v", err)
+	}
+	stateFromURL := u.Query().Get("state")
+	if stateFromURL != stateCookie.Value {
+		t.Errorf("URL state %q should match cookie value %q", stateFromURL, stateCookie.Value)
 	}
 }
 
@@ -217,4 +244,178 @@ func TestIsEmailAllowed(t *testing.T) {
 			}
 		})
 	}
+}
+
+// --- OAuth State CSRF protection ---
+
+func TestOAuthStateCSRF(t *testing.T) {
+	t.Run("state cookie is set on login", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/login?state=/reviews", nil)
+		w := httptest.NewRecorder()
+
+		HandleGoogleLogin(cfg)(w, req)
+
+		var stateCookie *http.Cookie
+		for _, c := range w.Result().Cookies() {
+			if c.Name == oauthStateCookieName {
+				stateCookie = c
+				break
+			}
+		}
+		if stateCookie == nil {
+			t.Fatal("expected nano_oauth_state cookie")
+		}
+		if !stateCookie.HttpOnly {
+			t.Error("expected HttpOnly=true")
+		}
+		if stateCookie.SameSite != http.SameSiteLaxMode {
+			t.Errorf("expected SameSite=Lax, got %v", stateCookie.SameSite)
+		}
+		if stateCookie.MaxAge != 300 {
+			t.Errorf("expected MaxAge=300, got %d", stateCookie.MaxAge)
+		}
+		if !strings.HasSuffix(stateCookie.Value, ":/reviews") {
+			t.Errorf("expected cookie value to end with ':/reviews', got %s", stateCookie.Value)
+		}
+	})
+
+	t.Run("state cookie uses Secure flag from SessionManager", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-client-id",
+			ClientSecret: "test-client-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+		w := httptest.NewRecorder()
+
+		HandleGoogleLogin(cfg)(w, req)
+
+		var stateCookie *http.Cookie
+		for _, c := range w.Result().Cookies() {
+			if c.Name == oauthStateCookieName {
+				stateCookie = c
+				break
+			}
+		}
+		if stateCookie == nil {
+			t.Fatal("expected nano_oauth_state cookie")
+		}
+		if stateCookie.Secure != cfg.SessionManager.Secure() {
+			t.Errorf("expected Secure=%v (from SessionManager), got %v", cfg.SessionManager.Secure(), stateCookie.Secure)
+		}
+	})
+
+	t.Run("callback rejects missing state param", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-id",
+			ClientSecret: "test-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code", nil)
+		w := httptest.NewRecorder()
+
+		HandleOAuthCallback(cfg)(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing state parameter") {
+			t.Errorf("expected 'missing state parameter' error, got %s", w.Body.String())
+		}
+	})
+
+	t.Run("callback rejects missing state cookie", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-id",
+			ClientSecret: "test-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state=some-token", nil)
+		w := httptest.NewRecorder()
+
+		HandleOAuthCallback(cfg)(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "missing state cookie") {
+			t.Errorf("expected 'missing state cookie' error, got %s", w.Body.String())
+		}
+	})
+
+	t.Run("callback rejects mismatched state", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-id",
+			ClientSecret: "test-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state=attacker-csrf:/dashboard", nil)
+		req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "legitimate-csrf:/dashboard"})
+		w := httptest.NewRecorder()
+
+		HandleOAuthCallback(cfg)(w, req)
+
+		if w.Code != http.StatusBadRequest {
+			t.Errorf("expected status 400, got %d", w.Code)
+		}
+		if !strings.Contains(w.Body.String(), "invalid state parameter") {
+			t.Errorf("expected 'invalid state parameter' error, got %s", w.Body.String())
+		}
+	})
+
+	t.Run("callback clears state cookie after verification", func(t *testing.T) {
+		cfg := &OAuthConfig{
+			ClientID:     "test-id",
+			ClientSecret: "test-secret",
+			RedirectURL:  "http://localhost:8080/auth/callback",
+			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+		}
+
+		// Valid state with matching CSRF token — will proceed past state verification
+		// and fail later on token exchange (which is expected; we just want to check
+		// that the cookie is cleared before the token exchange attempt).
+		req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state=valid-token:/reviews", nil)
+		req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: "valid-token:/reviews"})
+		w := httptest.NewRecorder()
+
+		HandleOAuthCallback(cfg)(w, req)
+
+		// The response should fail (bad gateway from token exchange), not from state verification.
+		if w.Code == http.StatusBadRequest {
+			// If it's a 400, it should NOT be a state-related error.
+			if strings.Contains(w.Body.String(), "state") {
+				t.Errorf("state verification should have passed, got error: %s", w.Body.String())
+			}
+		}
+
+		// Verify the state cookie was cleared.
+		cookies := w.Result().Cookies()
+		for _, c := range cookies {
+			if c.Name == oauthStateCookieName {
+				if c.MaxAge != -1 {
+					t.Errorf("expected cleared cookie MaxAge=-1, got %d", c.MaxAge)
+				}
+				if c.Value != "" {
+					t.Errorf("expected cleared cookie value to be empty, got %q", c.Value)
+				}
+				return
+			}
+		}
+		t.Error("expected nano_oauth_state cookie to be cleared")
+	})
 }
