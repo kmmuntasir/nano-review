@@ -1265,6 +1265,88 @@ func TestSetCookieSecureFlag(t *testing.T) {
 	})
 }
 
+// --- TestSecureCookieFlag: all four cookie methods use Secure: true by default ---
+
+func TestSecureCookieFlag(t *testing.T) {
+	t.Setenv("SECURE_COOKIES", "")
+	m := NewSessionManager(testKey(t), 1, nil)
+
+	if !m.Secure() {
+		t.Fatal("expected Secure()=true by default")
+	}
+
+	token := m.CreateToken("sess-secure")
+
+	// SetCookie
+	w := httptest.NewRecorder()
+	m.SetCookie(w, token)
+	if !w.Result().Cookies()[0].Secure {
+		t.Error("SetCookie: expected Secure=true")
+	}
+
+	// ClearCookie
+	w = httptest.NewRecorder()
+	m.ClearCookie(w)
+	if !w.Result().Cookies()[0].Secure {
+		t.Error("ClearCookie: expected Secure=true")
+	}
+
+	// SetTokenCookie
+	w = httptest.NewRecorder()
+	m.SetTokenCookie(w, token)
+	if !w.Result().Cookies()[0].Secure {
+		t.Error("SetTokenCookie: expected Secure=true")
+	}
+
+	// ClearTokenCookie
+	w = httptest.NewRecorder()
+	m.ClearTokenCookie(w)
+	if !w.Result().Cookies()[0].Secure {
+		t.Error("ClearTokenCookie: expected Secure=true")
+	}
+}
+
+// --- TestSecureCookieFlagDisabled: all four cookie methods use Secure: false ---
+
+func TestSecureCookieFlagDisabled(t *testing.T) {
+	t.Setenv("SECURE_COOKIES", "false")
+	m := NewSessionManager(testKey(t), 1, nil)
+
+	if m.Secure() {
+		t.Fatal("expected Secure()=false when SECURE_COOKIES=false")
+	}
+
+	token := m.CreateToken("sess-insecure")
+
+	// SetCookie
+	w := httptest.NewRecorder()
+	m.SetCookie(w, token)
+	if w.Result().Cookies()[0].Secure {
+		t.Error("SetCookie: expected Secure=false")
+	}
+
+	// ClearCookie
+	w = httptest.NewRecorder()
+	m.ClearCookie(w)
+	if w.Result().Cookies()[0].Secure {
+		t.Error("ClearCookie: expected Secure=false")
+	}
+
+	// SetTokenCookie
+	w = httptest.NewRecorder()
+	m.SetTokenCookie(w, token)
+	if w.Result().Cookies()[0].Secure {
+		t.Error("SetTokenCookie: expected Secure=false")
+	}
+
+	// ClearTokenCookie
+	w = httptest.NewRecorder()
+	m.ClearTokenCookie(w)
+	if w.Result().Cookies()[0].Secure {
+		t.Error("ClearTokenCookie: expected Secure=false")
+	}
+}
+
 // --- SetTokenCookie respects secure flag ---
 
 func TestSetTokenCookieSecureFlag(t *testing.T) {

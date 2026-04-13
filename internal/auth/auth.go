@@ -241,6 +241,11 @@ func (m *SessionManager) AuthEnabled() bool {
 	return m.authEnabled
 }
 
+// Secure returns whether the Secure flag is set on cookies.
+func (m *SessionManager) Secure() bool {
+	return m.secure
+}
+
 // RequireAuth returns an HTTP middleware that validates the nano_session cookie.
 // If authentication is disabled (AUTH_ENABLED=false), it passes requests through
 // without checking. Otherwise it reads the cookie (or the ?token= query parameter
