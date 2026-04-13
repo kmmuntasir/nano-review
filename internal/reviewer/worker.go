@@ -284,17 +284,41 @@ func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.
 }
 
 // broadcastReviewUpdate sends a review_update event to all WebSocket subscribers.
+// When the store is available, the full review record is included in the message
+// so that subscribers on the "all" topic can update their UI without an extra API call.
 func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status storage.ReviewStatus, conclusion string, durationMs int64) {
 	if w.broadcaster == nil {
 		return
 	}
-	msg, err := json.Marshal(map[string]any{
+
+	msgData := map[string]any{
 		"type":        "review_update",
 		"run_id":      runID,
 		"status":      string(status),
 		"conclusion":  conclusion,
 		"duration_ms": durationMs,
-	})
+	}
+
+	// Include full review record so the frontend doesn't need a separate fetch.
+	if w.store != nil {
+		if review, err := w.store.GetReview(ctx, runID); err == nil {
+			msgData["review"] = map[string]any{
+				"run_id":       review.RunID,
+				"repo":         review.Repo,
+				"pr_number":    review.PRNumber,
+				"base_branch":  review.BaseBranch,
+				"head_branch":  review.HeadBranch,
+				"status":       string(review.Status),
+				"conclusion":   string(review.Conclusion),
+				"duration_ms":  review.DurationMs,
+				"attempts":     review.Attempts,
+				"created_at":   review.CreatedAt.Format(time.RFC3339),
+				"completed_at": formatCompletedAt(review.CompletedAt),
+			}
+		}
+	}
+
+	msg, err := json.Marshal(msgData)
 	if err != nil {
 		return
 	}
