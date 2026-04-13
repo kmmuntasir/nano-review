@@ -2030,6 +2030,23 @@
             tableBody.innerHTML = html;
         }
 
+        function updateMetricsCards(metrics) {
+            if (!metrics) return;
+
+            var totalEl = document.querySelector(".stat-card:nth-child(1) .value");
+            var successEl = document.querySelector(".stat-card:nth-child(2) .value");
+            var durationEl = document.querySelector(".stat-card:nth-child(3) .value");
+            var todayEl = document.querySelector(".stat-card:nth-child(4) .value");
+
+            if (totalEl) totalEl.textContent = metrics.total_reviews || 0;
+            if (successEl) successEl.textContent = formatPercent(
+                metrics.success_count || 0,
+                metrics.total_reviews || 0
+            );
+            if (durationEl) durationEl.textContent = formatDuration(metrics.avg_duration_ms || 0);
+            if (todayEl) todayEl.textContent = metrics.reviews_today || 0;
+        }
+
         function statCard(label, value) {
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
