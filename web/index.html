@@ -2167,7 +2167,16 @@
                 }
             };
 
+            // Handle metrics updates
+            dashboardState.onMetricsUpdate = function(msg) {
+                if (msg.metrics) {
+                    dashboardState.metrics = msg.metrics;
+                    updateMetricsCards(msg.metrics);
+                }
+            };
+
             ws.on("review_update", dashboardState.onReviewUpdate);
+            ws.on("metrics_update", dashboardState.onMetricsUpdate);
         }
 
         function statCard(label, value) {
