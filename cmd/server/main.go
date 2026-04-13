@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -312,6 +313,14 @@ func main() {
 		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
 		RedirectURL:  os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"),
 		SessionManager: sessionMgr,
+	}
+
+	if d := os.Getenv("ALLOWED_EMAIL_DOMAINS"); d != "" {
+		oauthCfg.AllowedEmailDomains = strings.Split(d, ",")
+		for i, domain := range oauthCfg.AllowedEmailDomains {
+			oauthCfg.AllowedEmailDomains[i] = strings.TrimSpace(domain)
+		}
+		slog.Info("email domain restriction enabled", "domains", oauthCfg.AllowedEmailDomains)
 	}
 
 	mux := http.NewServeMux()

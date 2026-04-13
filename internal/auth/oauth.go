@@ -37,6 +37,10 @@ type OAuthConfig struct {
 	// HTTPClient is an optional custom HTTP client used for token exchange
 	// and userinfo calls. When nil, http.DefaultClient is used.
 	HTTPClient *http.Client
+
+	// AllowedEmailDomains restricts which email domains can authenticate.
+	// Empty means all domains are allowed.
+	AllowedEmailDomains []string
 }
 
 // OAuthEndpoint returns the *oauth2.Config for Google OAuth2 flows.
@@ -159,6 +163,12 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 
 		slog.Info("user authenticated", "google_id", info.ID, "email", info.Email)
 
+		if !isEmailAllowed(info.Email, cfg.AllowedEmailDomains) {
+			slog.Warn("email domain not allowed", "email", info.Email, "allowed_domains", cfg.AllowedEmailDomains)
+			http.Error(w, `{"error":"email domain not allowed"}`, http.StatusForbidden)
+			return
+		}
+
 		sessionToken := cfg.SessionManager.CreateToken(info.ID)
 		cfg.SessionManager.SetCookie(w, sessionToken)
 		cfg.SessionManager.SetTokenCookie(w, sessionToken)
@@ -197,4 +207,25 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 			"source": user.Source,
 		})
 	}
+}
+
+// isEmailAllowed returns true if the email's domain is in the allowed list,
+// or if the allowed list is empty (all domains permitted).
+func isEmailAllowed(email string, allowedDomains []string) bool {
+	if len(allowedDomains) == 0 {
+		return true
+	}
+
+	at := strings.LastIndex(email, "@")
+	if at < 0 {
+		return false
+	}
+
+	domain := strings.ToLower(email[at+1:])
+	for _, allowed := range allowedDomains {
+		if strings.EqualFold(domain, strings.TrimPrefix(allowed, "@")) {
+			return true
+		}
+	}
+	return false
 }

@@ -139,3 +139,82 @@ func TestOAuthEndpoint_NilWhenUnconfigured(t *testing.T) {
 		})
 	}
 }
+
+func TestIsEmailAllowed(t *testing.T) {
+	tests := []struct {
+		name            string
+		email           string
+		allowedDomains  []string
+		want            bool
+	}{
+		{
+			name:           "empty allowed list allows all",
+			email:          "user@anywhere.com",
+			allowedDomains: nil,
+			want:           true,
+		},
+		{
+			name:           "matching domain",
+			email:          "user@example.com",
+			allowedDomains: []string{"example.com"},
+			want:           true,
+		},
+		{
+			name:           "non-matching domain",
+			email:          "user@other.org",
+			allowedDomains: []string{"example.com"},
+			want:           false,
+		},
+		{
+			name:           "case insensitive match",
+			email:          "user@Example.COM",
+			allowedDomains: []string{"example.com"},
+			want:           true,
+		},
+		{
+			name:           "case insensitive allowed domain",
+			email:          "user@example.com",
+			allowedDomains: []string{"Example.Com"},
+			want:           true,
+		},
+		{
+			name:           "multiple allowed domains",
+			email:          "user@other.org",
+			allowedDomains: []string{"example.com", "other.org"},
+			want:           true,
+		},
+		{
+			name:           "email without @ sign",
+			email:          "invalid-email",
+			allowedDomains: []string{"example.com"},
+			want:           false,
+		},
+		{
+			name:           "empty email",
+			email:          "",
+			allowedDomains: []string{"example.com"},
+			want:           false,
+		},
+		{
+			name:           "domain with @ prefix in allowed list",
+			email:          "user@example.com",
+			allowedDomains: []string{"@example.com"},
+			want:           true,
+		},
+		{
+			name:           "subdomain does not match parent",
+			email:          "user@sub.example.com",
+			allowedDomains: []string{"example.com"},
+			want:           false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := isEmailAllowed(tt.email, tt.allowedDomains)
+			if got != tt.want {
+				t.Errorf("isEmailAllowed(%q, %v) = %v, want %v", tt.email, tt.allowedDomains, got, tt.want)
+			}
+		})
+	}
+}
