@@ -47,6 +47,7 @@ type SessionManager struct {
 	maxAge         time.Duration
 	allowedDomains []string
 	authEnabled    bool
+	secure         bool
 }
 
 // NewSessionManager creates a SessionManager with the given HMAC key, max session
@@ -70,6 +71,7 @@ func NewSessionManager(hmacKey []byte, maxAgeHours float64, allowedDomains []str
 		maxAge:         maxAge,
 		allowedDomains: allowedDomains,
 		authEnabled:    parseAuthEnabled(),
+		secure:         parseSecureCookies(),
 	}
 }
 
@@ -79,6 +81,18 @@ func parseAuthEnabled() bool {
 	v := os.Getenv("AUTH_ENABLED")
 	if strings.EqualFold(v, "false") {
 		slog.Info("authentication disabled (AUTH_ENABLED=false)")
+		return false
+	}
+	return true
+}
+
+// parseSecureCookies reads SECURE_COOKIES from the environment.
+// Returns true unless the value is exactly "false" (case-insensitive).
+// Defaults to true so cookies are secure-by-default over HTTPS.
+func parseSecureCookies() bool {
+	v := os.Getenv("SECURE_COOKIES")
+	if strings.EqualFold(v, "false") {
+		slog.Info("secure cookies disabled (SECURE_COOKIES=false) — only use for local HTTP development")
 		return false
 	}
 	return true
@@ -161,7 +175,7 @@ func (m *SessionManager) SetCookie(w http.ResponseWriter, token string) {
 		Name:     cookieName,
 		Value:    token,
 		Path:     "/",
-		Secure:   true,
+		Secure:   m.secure,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(m.maxAge.Seconds()),
@@ -175,7 +189,7 @@ func (m *SessionManager) ClearCookie(w http.ResponseWriter) {
 		Name:     cookieName,
 		Value:    "",
 		Path:     "/",
-		Secure:   true,
+		Secure:   m.secure,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,
@@ -190,7 +204,7 @@ func (m *SessionManager) SetTokenCookie(w http.ResponseWriter, token string) {
 		Name:     tokenCookieName,
 		Value:    token,
 		Path:     "/",
-		Secure:   true,
+		Secure:   m.secure,
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(m.maxAge.Seconds()),
@@ -204,7 +218,7 @@ func (m *SessionManager) ClearTokenCookie(w http.ResponseWriter) {
 		Name:     tokenCookieName,
 		Value:    "",
 		Path:     "/",
-		Secure:   true,
+		Secure:   m.secure,
 		HttpOnly: false,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1,

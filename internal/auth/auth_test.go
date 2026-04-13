@@ -1166,3 +1166,137 @@ func getTestValue(ctx context.Context, key string) string {
 	v, _ := ctx.Value(testCtxKey(key)).(string)
 	return v
 }
+
+// --- parseSecureCookies ---
+
+func TestParseSecureCookies(t *testing.T) {
+	tests := []struct {
+		name     string
+		envValue string
+		want     bool
+	}{
+		{name: "empty env defaults to true", envValue: "", want: true},
+		{name: "random string defaults to true", envValue: "yes", want: true},
+		{name: "lowercase false", envValue: "false", want: false},
+		{name: "uppercase FALSE", envValue: "FALSE", want: false},
+		{name: "mixed case False", envValue: "False", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseSecureCookiesValue(tt.envValue)
+			if got != tt.want {
+				t.Errorf("parseSecureCookiesValue(%q) = %v, want %v", tt.envValue, got, tt.want)
+			}
+		})
+	}
+}
+
+// parseSecureCookiesValue is a test helper that tests the parseSecureCookies logic
+// without reading from environment variables.
+func parseSecureCookiesValue(v string) bool {
+	if strings.EqualFold(v, "false") {
+		return false
+	}
+	return true
+}
+
+// --- SECURE_COOKIES env var integration ---
+
+func TestSecureCookiesEnvVar(t *testing.T) {
+	t.Run("default is secure", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "")
+		m := NewSessionManager(testKey(t), 1, nil)
+		if !m.secure {
+			t.Error("expected secure=true by default")
+		}
+	})
+
+	t.Run("explicit true", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "true")
+		m := NewSessionManager(testKey(t), 1, nil)
+		if !m.secure {
+			t.Error("expected secure=true when SECURE_COOKIES=true")
+		}
+	})
+
+	t.Run("explicit false", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "false")
+		m := NewSessionManager(testKey(t), 1, nil)
+		if m.secure {
+			t.Error("expected secure=false when SECURE_COOKIES=false")
+		}
+	})
+}
+
+// --- SetCookie respects secure flag ---
+
+func TestSetCookieSecureFlag(t *testing.T) {
+	t.Run("secure=true sets Secure flag", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "true")
+		m := NewSessionManager(testKey(t), 1, nil)
+
+		w := httptest.NewRecorder()
+		m.SetCookie(w, m.CreateToken("sess-1"))
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if !cookies[0].Secure {
+			t.Error("expected Secure=true")
+		}
+	})
+
+	t.Run("secure=false omits Secure flag", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "false")
+		m := NewSessionManager(testKey(t), 1, nil)
+
+		w := httptest.NewRecorder()
+		m.SetCookie(w, m.CreateToken("sess-1"))
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if cookies[0].Secure {
+			t.Error("expected Secure=false")
+		}
+	})
+}
+
+// --- SetTokenCookie respects secure flag ---
+
+func TestSetTokenCookieSecureFlag(t *testing.T) {
+	t.Run("secure=true sets Secure flag", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "true")
+		m := NewSessionManager(testKey(t), 1, nil)
+
+		w := httptest.NewRecorder()
+		m.SetTokenCookie(w, m.CreateToken("sess-1"))
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if !cookies[0].Secure {
+			t.Error("expected Secure=true")
+		}
+	})
+
+	t.Run("secure=false omits Secure flag", func(t *testing.T) {
+		t.Setenv("SECURE_COOKIES", "false")
+		m := NewSessionManager(testKey(t), 1, nil)
+
+		w := httptest.NewRecorder()
+		m.SetTokenCookie(w, m.CreateToken("sess-1"))
+
+		cookies := w.Result().Cookies()
+		if len(cookies) != 1 {
+			t.Fatalf("expected 1 cookie, got %d", len(cookies))
+		}
+		if cookies[0].Secure {
+			t.Error("expected Secure=false")
+		}
+	})
+}
