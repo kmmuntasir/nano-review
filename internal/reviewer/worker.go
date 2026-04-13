@@ -466,6 +466,59 @@ func parseRepoURL(raw string) (owner, repo string) {
 	return slug, ""
 }
 
+// calculateMetrics computes aggregate review statistics from the store.
+// Returns nil if the store is unavailable or a database error occurs.
+func (w *Worker) calculateMetrics(ctx context.Context) map[string]any {
+	if w.store == nil {
+		return nil
+	}
+
+	reviews, err := w.store.ListReviews(ctx, storage.ListFilter{Limit: 10000})
+	if err != nil {
+		return nil
+	}
+
+	var total, success, failed, timedOut, cancelled, todayCount int
+	var totalDuration int64
+	now := time.Now()
+	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	for _, r := range reviews {
+		total++
+		totalDuration += r.DurationMs
+
+		switch r.Status {
+		case storage.StatusCompleted:
+			success++
+		case storage.StatusFailed:
+			failed++
+		case storage.StatusTimedOut:
+			timedOut++
+		case storage.StatusCancelled:
+			cancelled++
+		}
+
+		if r.CreatedAt.After(todayStart) && r.CreatedAt.Before(now.Add(24*time.Hour)) {
+			todayCount++
+		}
+	}
+
+	avgDuration := int64(0)
+	if total > 0 {
+		avgDuration = totalDuration / int64(total)
+	}
+
+	return map[string]any{
+		"total_reviews":   total,
+		"success_count":   success,
+		"failed_count":    failed,
+		"timed_out_count": timedOut,
+		"cancelled_count": cancelled,
+		"avg_duration_ms": avgDuration,
+		"reviews_today":   todayCount,
+	}
+}
+
 // isTransientError returns true if the Claude Code CLI failure should be retried.
 // This covers: network timeouts, rate limits (HTTP 429), server errors (500/502/503),
 // and known transient CLI exit codes.
