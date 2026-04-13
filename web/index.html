@@ -2090,51 +2090,80 @@
                 var runId = msg.run_id;
                 var status = msg.status;
 
-                // Check if review already exists in our list
-                var existingIdx = -1;
-                for (var i = 0; i < dashboardState.reviews.length; i++) {
-                    if (dashboardState.reviews[i].run_id === runId) {
-                        existingIdx = i;
-                        break;
-                    }
-                }
+                // Prefer embedded review data to avoid API call
+                var reviewData = msg.review;
 
-                if (existingIdx >= 0) {
-                    // Update existing review in place
-                    dashboardState.reviews[existingIdx].status = status;
-                    if (msg.duration_ms !== undefined) {
-                        dashboardState.reviews[existingIdx].duration_ms = msg.duration_ms;
+                if (reviewData) {
+                    // Full review data is embedded - use it directly
+                    var existingIdx = -1;
+                    for (var i = 0; i < dashboardState.reviews.length; i++) {
+                        if (dashboardState.reviews[i].run_id === runId) {
+                            existingIdx = i;
+                            break;
+                        }
                     }
-                    // Re-render the reviews table
+
+                    if (existingIdx >= 0) {
+                        // Update existing review
+                        Object.assign(dashboardState.reviews[existingIdx], reviewData);
+                    } else {
+                        // Add new review at beginning
+                        dashboardState.reviews.unshift(reviewData);
+                        if (dashboardState.reviews.length > 10) {
+                            dashboardState.reviews = dashboardState.reviews.slice(0, 10);
+                        }
+                    }
                     updateReviewsTable();
+
+                    // Refresh metrics on terminal status
+                    if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
+                        refreshMetrics();
+                    }
                 } else {
-                    // New review - fetch full details and add to list
-                    api.getReview(runId).then(function(r) {
-                        if (r) {
-                            dashboardState.reviews.unshift(r); // Add at beginning
-                            // Keep only the 10 most recent
+                    // Fallback: fetch via API (Phase 1 behavior)
+                    var existingIdx = -1;
+                    for (var i = 0; i < dashboardState.reviews.length; i++) {
+                        if (dashboardState.reviews[i].run_id === runId) {
+                            existingIdx = i;
+                            break;
+                        }
+                    }
+
+                    if (existingIdx >= 0) {
+                        // Update existing review in place
+                        dashboardState.reviews[existingIdx].status = status;
+                        if (msg.duration_ms !== undefined) {
+                            dashboardState.reviews[existingIdx].duration_ms = msg.duration_ms;
+                        }
+                        updateReviewsTable();
+                    } else {
+                        // New review - fetch full details and add to list
+                        api.getReview(runId).then(function(r) {
+                            if (r) {
+                                dashboardState.reviews.unshift(r);
+                                if (dashboardState.reviews.length > 10) {
+                                    dashboardState.reviews = dashboardState.reviews.slice(0, 10);
+                                }
+                                updateReviewsTable();
+                            }
+                        }).catch(function() {
+                            // Fetch failed, still add with available data
+                            dashboardState.reviews.unshift({
+                                run_id: runId,
+                                status: status,
+                                created_at: new Date().toISOString()
+                            });
                             if (dashboardState.reviews.length > 10) {
                                 dashboardState.reviews = dashboardState.reviews.slice(0, 10);
                             }
                             updateReviewsTable();
-                        }
-                    }).catch(function() {
-                        // Fetch failed, still add with available data
-                        dashboardState.reviews.unshift({
-                            run_id: runId,
-                            status: status,
-                            created_at: new Date().toISOString()
                         });
-                        if (dashboardState.reviews.length > 10) {
-                            dashboardState.reviews = dashboardState.reviews.slice(0, 10);
-                        }
-                        updateReviewsTable();
-                    });
-                }
+                    }
 
-                // Update metrics when review reaches terminal state
-                if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
-                    refreshMetrics();
+                    // Update metrics when review reaches terminal state
+                    if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
+                        refreshMetrics();
+                    }
                 }
             };
 
