@@ -311,6 +311,14 @@ func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status
 	}
 }
 
+func formatCompletedAt(t *time.Time) *string {
+	if t == nil {
+		return nil
+	}
+	s := t.Format(time.RFC3339)
+	return &s
+}
+
 func isTerminal(s storage.ReviewStatus) bool {
 	switch s {
 	case storage.StatusCompleted, storage.StatusFailed, storage.StatusTimedOut, storage.StatusCancelled:
