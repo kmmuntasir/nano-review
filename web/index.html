@@ -2257,6 +2257,122 @@
             ws.on("metrics_update", dashboardState.onMetricsUpdate);
         }
 
+        // --- Dashboard aggregate helpers ---
+
+        function statusBar(metrics) {
+            var total = metrics.total_reviews || 0;
+            if (total === 0) {
+                return '<div class="empty">No reviews yet</div>';
+            }
+
+            var completed = metrics.success_count || 0;
+            var failed = metrics.failure_count || 0;
+            var timedOut = metrics.timed_out_count || 0;
+            var cancelled = metrics.cancelled_count || 0;
+            var active = total - completed - failed - timedOut - cancelled;
+
+            var segments = "";
+            if (completed > 0) segments += '<div class="status-bar__segment status-bar__segment--completed" style="width:' + ((completed/total)*100).toFixed(1) + '%"></div>';
+            if (failed > 0) segments += '<div class="status-bar__segment status-bar__segment--failed" style="width:' + ((failed/total)*100).toFixed(1) + '%"></div>';
+            if (timedOut > 0) segments += '<div class="status-bar__segment status-bar__segment--timed_out" style="width:' + ((timedOut/total)*100).toFixed(1) + '%"></div>';
+            if (cancelled > 0) segments += '<div class="status-bar__segment status-bar__segment--cancelled" style="width:' + ((cancelled/total)*100).toFixed(1) + '%"></div>';
+            if (active > 0) segments += '<div class="status-bar__segment status-bar__segment--active" style="width:' + ((active/total)*100).toFixed(1) + '%"></div>';
+
+            var legend = '<div class="status-bar__legend">' +
+                '<span class="status-bar__legend-item"><span class="swatch swatch--completed"></span> Completed: ' + completed + '</span>' +
+                '<span class="status-bar__legend-item"><span class="swatch swatch--failed"></span> Failed: ' + failed + '</span>' +
+                '<span class="status-bar__legend-item"><span class="swatch swatch--timed_out"></span> Timed out: ' + timedOut + '</span>' +
+                '<span class="status-bar__legend-item"><span class="swatch swatch--cancelled"></span> Cancelled: ' + cancelled + '</span>' +
+                (active > 0 ? '<span class="status-bar__legend-item"><span class="swatch swatch--active"></span> Active: ' + active + '</span>' : '') +
+                '</div>';
+
+            return '<div class="status-bar">' + segments + '</div>' + legend;
+        }
+
+        function activeReviewsSection(pending, running) {
+            var all = (running || []).concat(pending || []);
+            if (!all.length) {
+                return '<div class="empty">No active reviews</div>';
+            }
+
+            var html = '<div class="active-reviews">';
+            all.forEach(function(r) {
+                html += '<div class="active-review-card">' +
+                    '<span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span>' +
+                    '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
+                    '<div class="review-info">' +
+                    '<span>' + esc(basename(r.repo)) + '</span>' +
+                    '<span>#' + (r.pr_number || '-') + '</span>' +
+                    '</div>' +
+                    '<span>' + formatDuration(r.duration_ms) + '</span>' +
+                    '<a href="#/reviews/' + r.run_id + '" class="view-link">View</a>' +
+                    '</div>';
+            });
+            html += '</div>';
+            return html;
+        }
+
+        function updateStatusDistribution() {
+            var container = document.querySelector(".status-bar");
+            var legend = document.querySelector(".status-bar__legend");
+            if (!container || !dashboardState.metrics) return;
+
+            var m = dashboardState.metrics;
+            var total = m.total_reviews || 0;
+            if (total === 0) return;
+
+            var completed = m.success_count || 0;
+            var failed = m.failure_count || 0;
+            var timedOut = m.timed_out_count || 0;
+            var cancelled = m.cancelled_count || 0;
+            var active = total - completed - failed - timedOut - cancelled;
+
+            var segments = "";
+            if (completed > 0) segments += '<div class="status-bar__segment status-bar__segment--completed" style="width:' + ((completed/total)*100).toFixed(1) + '%"></div>';
+            if (failed > 0) segments += '<div class="status-bar__segment status-bar__segment--failed" style="width:' + ((failed/total)*100).toFixed(1) + '%"></div>';
+            if (timedOut > 0) segments += '<div class="status-bar__segment status-bar__segment--timed_out" style="width:' + ((timedOut/total)*100).toFixed(1) + '%"></div>';
+            if (cancelled > 0) segments += '<div class="status-bar__segment status-bar__segment--cancelled" style="width:' + ((cancelled/total)*100).toFixed(1) + '%"></div>';
+            if (active > 0) segments += '<div class="status-bar__segment status-bar__segment--active" style="width:' + ((active/total)*100).toFixed(1) + '%"></div>';
+
+            container.innerHTML = segments;
+
+            if (legend) {
+                legend.innerHTML =
+                    '<span class="status-bar__legend-item"><span class="swatch swatch--completed"></span> Completed: ' + completed + '</span>' +
+                    '<span class="status-bar__legend-item"><span class="swatch swatch--failed"></span> Failed: ' + failed + '</span>' +
+                    '<span class="status-bar__legend-item"><span class="swatch swatch--timed_out"></span> Timed out: ' + timedOut + '</span>' +
+                    '<span class="status-bar__legend-item"><span class="swatch swatch--cancelled"></span> Cancelled: ' + cancelled + '</span>' +
+                    (active > 0 ? '<span class="status-bar__legend-item"><span class="swatch swatch--active"></span> Active: ' + active + '</span>' : '');
+            }
+        }
+
+        function updateActiveReviews() {
+            var container = document.querySelector(".active-reviews");
+            if (!container) return;
+
+            var all = dashboardState.runningReviews.concat(dashboardState.pendingReviews);
+            if (!all.length) {
+                var wrap = container.parentElement;
+                if (wrap) wrap.innerHTML = '<div class="empty">No active reviews</div>';
+                return;
+            }
+
+            var html = "";
+            all.forEach(function(r) {
+                html += '<div class="active-review-card">' +
+                    '<span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span>' +
+                    '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
+                    '<div class="review-info">' +
+                    '<span>' + esc(basename(r.repo)) + '</span>' +
+                    '<span>#' + (r.pr_number || '-') + '</span>' +
+                    '</div>' +
+                    '<span>' + formatDuration(r.duration_ms) + '</span>' +
+                    '<a href="#/reviews/' + r.run_id + '" class="view-link">View</a>' +
+                    '</div>';
+            });
+            container.innerHTML = html;
+        }
+
         function statCard(label, value) {
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
