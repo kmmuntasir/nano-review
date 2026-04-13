@@ -333,6 +333,20 @@ func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status
 		})
 		w.broadcaster.Broadcast("run:"+runID, doneMsg)
 	}
+
+	// For terminal statuses, broadcast updated metrics.
+	if isTerminal(status) && w.store != nil {
+		metrics := w.calculateMetrics(ctx)
+		if metrics != nil {
+			metricsMsg, err := json.Marshal(map[string]any{
+				"type":    "metrics_update",
+				"metrics": metrics,
+			})
+			if err == nil {
+				w.broadcaster.Broadcast("all", metricsMsg)
+			}
+		}
+	}
 }
 
 func formatCompletedAt(t *time.Time) *string {
