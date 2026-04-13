@@ -280,11 +280,11 @@ func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.
 			)
 		}
 	}
-	w.broadcastReviewUpdate(runID, status, string(conclusion), durationMs)
+	w.broadcastReviewUpdate(ctx, runID, status, string(conclusion), durationMs)
 }
 
 // broadcastReviewUpdate sends a review_update event to all WebSocket subscribers.
-func (w *Worker) broadcastReviewUpdate(runID string, status storage.ReviewStatus, conclusion string, durationMs int64) {
+func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status storage.ReviewStatus, conclusion string, durationMs int64) {
 	if w.broadcaster == nil {
 		return
 	}
