@@ -581,61 +581,12 @@
         };
 
         import StreamRenderer from "./js/stream-renderer.js";
+        import { renderDashboard, cleanupDashboardHandlers } from "./js/views/dashboard.js";
         import { renderReviewsPage, cleanupReviewsPageHandlers } from "./js/views/reviews.js";
         import { renderReviewDetail } from "./js/views/detail.js";
+        import { route } from "./js/router.js";
 
 
-        // =========================================================
-        // Cleanup helpers — detach page-specific WebSocket handlers
-        // =========================================================
-
-        function cleanupDashboardHandlers() {
-            if (dashboardState.onReviewUpdate) {
-                ws.off("review_update", dashboardState.onReviewUpdate);
-                dashboardState.onReviewUpdate = null;
-            }
-            if (dashboardState.onMetricsUpdate) {
-                ws.off("metrics_update", dashboardState.onMetricsUpdate);
-                dashboardState.onMetricsUpdate = null;
-            }
-        }
-
-
-        // =========================================================
-        // Router
-        // =========================================================
-        function route() {
-            if (!Auth.checked() || (Auth.authEnabled() && !Auth.authenticated())) return;
-
-            var hash = location.hash || "#/dashboard";
-
-            // Cleanup ALL page-specific WebSocket handlers before routing
-            cleanupDashboardHandlers();
-            cleanupReviewsPageHandlers();
-
-            updateNav(hash);
-
-            if (hash === "#/" || hash === "" || hash === "#/dashboard") {
-                renderDashboard();
-            } else if (hash === "#/reviews") {
-                renderReviewsPage();
-            } else {
-                var match = hash.match(/^#\/reviews\/(.+)$/);
-                if (match) {
-                    renderReviewDetail(match[1]);
-                } else {
-                    renderDashboard();
-                }
-            }
-        }
-
-        function updateNav(hash) {
-            document.querySelectorAll("nav a[data-nav]").forEach(function(a) {
-                a.classList.toggle("active", hash.indexOf(a.getAttribute("data-nav")) !== -1);
-            });
-        }
-
-        window.addEventListener("hashchange", route);
 
         // Track dashboard state for WebSocket updates
         var dashboardState = {
