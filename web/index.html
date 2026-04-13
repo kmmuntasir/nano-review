@@ -2010,6 +2010,26 @@
             app.innerHTML = html;
         }
 
+        function updateReviewsTable() {
+            var tableBody = document.querySelector("table tbody");
+            if (!tableBody) return;
+
+            var html = "";
+            for (var i = 0; i < dashboardState.reviews.length; i++) {
+                var r = dashboardState.reviews[i];
+                html += '<tr>' +
+                    '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
+                    '<td>' + esc(basename(r.repo)) + '</td>' +
+                    '<td>' + (r.pr_number || '-') + '</td>' +
+                    '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
+                    '<td>' + formatDuration(r.duration_ms) + '</td>' +
+                    '<td>' + formatDate(r.created_at) + '</td>' +
+                    '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
+                    '</tr>';
+            }
+            tableBody.innerHTML = html;
+        }
+
         function statCard(label, value) {
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
