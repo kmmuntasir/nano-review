@@ -547,6 +547,305 @@ func newTestSessionManager(t *testing.T) *SessionManager {
 	return NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil)
 }
 
+// --- Task A1: HandleGoogleLogin comprehensive tests ---
+
+func TestHandleGoogleLoginSuccess(t *testing.T) {
+	cfg := testOAuthConfig()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	w := httptest.NewRecorder()
+
+	HandleGoogleLogin(cfg)(w, req)
+
+	// Must redirect with 307.
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected status 307, got %d", w.Code)
+	}
+
+	// Redirect URL must point to Google.
+	loc := w.Header().Get("Location")
+	if loc == "" {
+		t.Fatal("expected Location header")
+	}
+	if !strings.HasPrefix(loc, "https://accounts.google.com/o/oauth2/auth") {
+		t.Errorf("expected Google OAuth redirect, got %s", loc)
+	}
+
+	// State cookie must be set.
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie to be set")
+	}
+
+	// State value must be a base64url-encoded 32-byte CSRF token (no redirect path).
+	// base64.RawURLEncoding of 32 bytes = 43 characters.
+	if len(stateCookie.Value) != 43 {
+		t.Errorf("expected CSRF token length 43 (base64 of 32 bytes), got %d: %q", len(stateCookie.Value), stateCookie.Value)
+	}
+	decoded, err := base64.RawURLEncoding.DecodeString(stateCookie.Value)
+	if err != nil {
+		t.Fatalf("expected valid base64url-encoded CSRF token, got error: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Errorf("expected 32 decoded bytes, got %d", len(decoded))
+	}
+
+	// The state parameter in the redirect URL must match the cookie value.
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("failed to parse redirect URL: %v", err)
+	}
+	stateFromURL := u.Query().Get("state")
+	if stateFromURL != stateCookie.Value {
+		t.Errorf("URL state %q != cookie value %q", stateFromURL, stateCookie.Value)
+	}
+}
+
+func TestHandleGoogleLoginWithRedirectPath(t *testing.T) {
+	cfg := testOAuthConfig()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login?state=/dashboard", nil)
+	w := httptest.NewRecorder()
+
+	HandleGoogleLogin(cfg)(w, req)
+
+	if w.Code != http.StatusTemporaryRedirect {
+		t.Fatalf("expected status 307, got %d", w.Code)
+	}
+
+	// Verify cookie contains the redirect path.
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie")
+	}
+
+	// State format is csrfToken:redirectPath.
+	parts := strings.SplitN(stateCookie.Value, ":", 2)
+	if len(parts) != 2 {
+		t.Fatalf("expected state in format 'token:path', got %q", stateCookie.Value)
+	}
+	if parts[1] != "/dashboard" {
+		t.Errorf("expected redirect path '/dashboard', got %q", parts[1])
+	}
+
+	// CSRF token portion must be valid base64url of 32 bytes.
+	decoded, err := base64.RawURLEncoding.DecodeString(parts[0])
+	if err != nil {
+		t.Fatalf("expected valid base64url-encoded CSRF token, got error: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Errorf("expected 32 decoded bytes in CSRF token, got %d", len(decoded))
+	}
+
+	// Verify URL state matches cookie.
+	loc := w.Header().Get("Location")
+	u, _ := url.Parse(loc)
+	stateFromURL := u.Query().Get("state")
+	if stateFromURL != stateCookie.Value {
+		t.Errorf("URL state %q != cookie value %q", stateFromURL, stateCookie.Value)
+	}
+}
+
+func TestHandleGoogleLoginSetsSecureCookieWhenHTTPS(t *testing.T) {
+	cfg := testOAuthConfig()
+	cfg.SessionManager.secure = true
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	w := httptest.NewRecorder()
+
+	HandleGoogleLogin(cfg)(w, req)
+
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie")
+	}
+	if !stateCookie.Secure {
+		t.Error("expected Secure=true when SessionManager.Secure() is true")
+	}
+}
+
+func TestHandleGoogleLoginSetsInsecureCookieWhenHTTP(t *testing.T) {
+	cfg := testOAuthConfig()
+	cfg.SessionManager.secure = false
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	w := httptest.NewRecorder()
+
+	HandleGoogleLogin(cfg)(w, req)
+
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie")
+	}
+	if stateCookie.Secure {
+		t.Error("expected Secure=false when SessionManager.Secure() is false")
+	}
+}
+
+func TestHandleGoogleLoginStateCookieAttributes(t *testing.T) {
+	cfg := testOAuthConfig()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+	w := httptest.NewRecorder()
+
+	HandleGoogleLogin(cfg)(w, req)
+
+	cookies := w.Result().Cookies()
+	var stateCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == oauthStateCookieName {
+			stateCookie = c
+			break
+		}
+	}
+	if stateCookie == nil {
+		t.Fatal("expected nano_oauth_state cookie")
+	}
+
+	if !stateCookie.HttpOnly {
+		t.Error("expected HttpOnly=true")
+	}
+	if stateCookie.SameSite != http.SameSiteLaxMode {
+		t.Errorf("expected SameSite=Lax, got %v", stateCookie.SameSite)
+	}
+	if stateCookie.MaxAge != 300 {
+		t.Errorf("expected MaxAge=300, got %d", stateCookie.MaxAge)
+	}
+	if stateCookie.Path != "/" {
+		t.Errorf("expected Path='/', got %q", stateCookie.Path)
+	}
+}
+
+func TestHandleGoogleLoginStateFormat(t *testing.T) {
+	t.Run("without redirect path is bare csrf token", func(t *testing.T) {
+		cfg := testOAuthConfig()
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/login", nil)
+		w := httptest.NewRecorder()
+
+		HandleGoogleLogin(cfg)(w, req)
+
+		cookies := w.Result().Cookies()
+		var stateCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == oauthStateCookieName {
+				stateCookie = c
+				break
+			}
+		}
+		if stateCookie == nil {
+			t.Fatal("expected nano_oauth_state cookie")
+		}
+
+		// No ":" means no redirect path.
+		if strings.Contains(stateCookie.Value, ":") {
+			t.Errorf("expected bare CSRF token without ':', got %q", stateCookie.Value)
+		}
+
+		// Must be valid base64url.
+		decoded, err := base64.RawURLEncoding.DecodeString(stateCookie.Value)
+		if err != nil {
+			t.Fatalf("invalid base64url: %v", err)
+		}
+		if len(decoded) != 32 {
+			t.Errorf("expected 32 bytes, got %d", len(decoded))
+		}
+	})
+
+	t.Run("with redirect path is csrfToken:path", func(t *testing.T) {
+		cfg := testOAuthConfig()
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/login?state=/settings", nil)
+		w := httptest.NewRecorder()
+
+		HandleGoogleLogin(cfg)(w, req)
+
+		cookies := w.Result().Cookies()
+		var stateCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == oauthStateCookieName {
+				stateCookie = c
+				break
+			}
+		}
+		if stateCookie == nil {
+			t.Fatal("expected nano_oauth_state cookie")
+		}
+
+		if !strings.Contains(stateCookie.Value, ":") {
+			t.Fatalf("expected 'token:path' format with redirect, got %q", stateCookie.Value)
+		}
+
+		parts := strings.SplitN(stateCookie.Value, ":", 2)
+		if parts[1] != "/settings" {
+			t.Errorf("expected redirect path '/settings', got %q", parts[1])
+		}
+
+		// Token portion must still be valid 32-byte base64url.
+		decoded, err := base64.RawURLEncoding.DecodeString(parts[0])
+		if err != nil {
+			t.Fatalf("invalid base64url in CSRF token: %v", err)
+		}
+		if len(decoded) != 32 {
+			t.Errorf("expected 32 bytes in CSRF token, got %d", len(decoded))
+		}
+	})
+
+	t.Run("with empty redirect query param is bare token", func(t *testing.T) {
+		cfg := testOAuthConfig()
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/login?state=", nil)
+		w := httptest.NewRecorder()
+
+		HandleGoogleLogin(cfg)(w, req)
+
+		cookies := w.Result().Cookies()
+		var stateCookie *http.Cookie
+		for _, c := range cookies {
+			if c.Name == oauthStateCookieName {
+				stateCookie = c
+				break
+			}
+		}
+		if stateCookie == nil {
+			t.Fatal("expected nano_oauth_state cookie")
+		}
+
+		// Empty state param means no redirect path appended.
+		if strings.Contains(stateCookie.Value, ":") {
+			t.Errorf("expected bare CSRF token for empty state param, got %q", stateCookie.Value)
+		}
+	})
+}
+
 func TestHandleSessionInfoPublic(t *testing.T) {
 	sm := newTestSessionManager(t)
 	sm.authEnabled = true
