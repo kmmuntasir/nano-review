@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -542,6 +543,10 @@ type mockRoundTripper struct {
 	// UserInfoStatus is the HTTP status code for userinfo requests (default 200).
 	UserInfoStatus int
 
+	// UserInfoError forces RoundTrip to return an error for userinfo requests.
+	// When non-nil, the userinfo case returns this error instead of a response.
+	UserInfoError error
+
 	// RequestLog records every request URL for assertion in tests.
 	RequestLog []string
 }
@@ -571,6 +576,9 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		body = io.NopCloser(strings.NewReader(m.TokenResponse))
 		status = m.TokenStatus
 	case strings.Contains(req.URL.Path, "userinfo"):
+		if m.UserInfoError != nil {
+			return nil, m.UserInfoError
+		}
 		body = io.NopCloser(strings.NewReader(m.UserInfoResponse))
 		status = m.UserInfoStatus
 	default:
@@ -1035,6 +1043,249 @@ func TestHandleLogout(t *testing.T) {
 	}
 	if !found[tokenCookieName] {
 		t.Error("expected nano_session_token cookie to be cleared")
+	}
+}
+
+// --- HandleOAuthCallback tests ---
+
+func TestHandleOAuthCallbackSuccess(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	loc := w.Header().Get("Location")
+	if loc != "/" {
+		t.Errorf("expected redirect to /, got %s", loc)
+	}
+
+	// Verify session cookies were set.
+	cookies := w.Result().Cookies()
+	var foundSession, foundToken bool
+	for _, c := range cookies {
+		switch c.Name {
+		case cookieName:
+			foundSession = true
+			if c.Value == "" {
+				t.Error("expected non-empty session cookie value")
+			}
+		case tokenCookieName:
+			foundToken = true
+			if c.Value == "" {
+				t.Error("expected non-empty token cookie value")
+			}
+		}
+	}
+	if !foundSession {
+		t.Error("expected nano_session cookie to be set")
+	}
+	if !foundToken {
+		t.Error("expected nano_session_token cookie to be set")
+	}
+
+	// Verify mock received both token exchange and userinfo requests.
+	if len(rt.RequestLog) < 2 {
+		t.Fatalf("expected at least 2 requests, got %d: %v", len(rt.RequestLog), rt.RequestLog)
+	}
+	if !strings.Contains(rt.RequestLog[0], "token") {
+		t.Errorf("expected first request to token endpoint, got %s", rt.RequestLog[0])
+	}
+	if !strings.Contains(rt.RequestLog[1], "userinfo") {
+		t.Errorf("expected second request to userinfo endpoint, got %s", rt.RequestLog[1])
+	}
+}
+
+func TestHandleOAuthCallbackExtractsRedirectPath(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	state := validStateToken() + ":/dashboard?tab=reviews"
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	loc := w.Header().Get("Location")
+	if loc != "/dashboard?tab=reviews" {
+		t.Errorf("expected redirect to /dashboard?tab=reviews, got %s", loc)
+	}
+
+	// Verify a successful token exchange occurred (proves the full flow ran).
+	if len(rt.RequestLog) < 2 {
+		t.Fatalf("expected at least 2 mock requests, got %d", len(rt.RequestLog))
+	}
+}
+
+func TestHandleOAuthCallbackRedirectsToRootWhenNoPath(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	// State is just "csrfToken:" — colon present but no path after it.
+	state := validStateToken() + ":"
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d; body: %s", w.Code, w.Body.String())
+	}
+
+	loc := w.Header().Get("Location")
+	if loc != "/" {
+		t.Errorf("expected redirect to /, got %s", loc)
+	}
+
+	// Verify full flow ran successfully.
+	if len(rt.RequestLog) < 2 {
+		t.Fatalf("expected at least 2 mock requests, got %d", len(rt.RequestLog))
+	}
+}
+
+func TestHandleOAuthCallbackEmailDomainRejected(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	cfg.AllowedEmailDomains = []string{"allowedcompany.com"}
+	rt.UserInfoResponse = `{"id":"g-123","email":"user@evil.com","name":"Bad Actor","picture":""}`
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "email domain not allowed") {
+		t.Errorf("expected 'email domain not allowed' error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackInvalidEmailFormat(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	cfg.AllowedEmailDomains = []string{"example.com"}
+	rt.UserInfoResponse = `{"id":"g-456","email":"not-an-email","name":"No At Sign","picture":""}`
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("expected status 403, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "email domain not allowed") {
+		t.Errorf("expected 'email domain not allowed' error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackAllowsAnyDomainWhenListEmpty(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	cfg.AllowedEmailDomains = []string{} // explicitly empty — no restriction
+	rt.UserInfoResponse = `{"id":"g-789","email":"user@random-domain.xyz","name":"Any Domain","picture":""}`
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusFound {
+		t.Fatalf("expected status 302, got %d; body: %s", w.Code, w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackMissingCodeParam(t *testing.T) {
+	cfg := testOAuthConfig()
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "missing authorization code") {
+		t.Errorf("expected 'missing authorization code' error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackTokenExchangeFailure(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	rt.TokenStatus = http.StatusInternalServerError
+	rt.TokenResponse = `{"error":"invalid_client"}`
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=bad-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected status 502, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "token exchange failed") {
+		t.Errorf("expected 'token exchange failed' error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackUserinfoFetchFailure(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	// Return a valid token but make the userinfo endpoint return a transport error.
+	rt.UserInfoError = errors.New("connection refused")
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected status 502, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "failed to fetch user info") {
+		t.Errorf("expected 'failed to fetch user info' error, got %s", w.Body.String())
+	}
+}
+
+func TestHandleOAuthCallbackUserinfoDecodeFailure(t *testing.T) {
+	cfg, rt := mockHTTPClientWithConfig()
+	// Return valid token but invalid JSON from userinfo.
+	rt.UserInfoResponse = `{not-valid-json`
+	state := validStateToken()
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/callback?code=auth-code&state="+state, nil)
+	req.AddCookie(&http.Cookie{Name: oauthStateCookieName, Value: state})
+	w := httptest.NewRecorder()
+
+	HandleOAuthCallback(cfg)(w, req)
+
+	if w.Code != http.StatusBadGateway {
+		t.Fatalf("expected status 502, got %d; body: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "failed to decode user info") {
+		t.Errorf("expected 'failed to decode user info' error, got %s", w.Body.String())
 	}
 }
 
