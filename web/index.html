@@ -2045,19 +2045,11 @@
         function route() {
             if (!Auth.checked() || !Auth.authenticated()) return;
 
-            // Unsubscribe from "all" when leaving dashboard
             var hash = location.hash || "#/dashboard";
-            if (hash.indexOf("#/dashboard") === -1) {
-                ws.unsubscribe("all");
-                if (dashboardState.onReviewUpdate) {
-                    ws.off("review_update", dashboardState.onReviewUpdate);
-                    dashboardState.onReviewUpdate = null;
-                }
-                if (dashboardState.onMetricsUpdate) {
-                    ws.off("metrics_update", dashboardState.onMetricsUpdate);
-                    dashboardState.onMetricsUpdate = null;
-                }
-            }
+
+            // Cleanup ALL page-specific WebSocket handlers before routing
+            cleanupDashboardHandlers();
+            cleanupReviewsPageHandlers();
 
             updateNav(hash);
 
