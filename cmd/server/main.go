@@ -323,6 +323,17 @@ func main() {
 		slog.Info("email domain restriction enabled", "domains", oauthCfg.AllowedEmailDomains)
 	}
 
+	// Fail-fast: if authentication is enabled, verify that OAuth credentials
+	// are configured. Without them the server would start but every login
+	// attempt would fail with a 501 at request time — a confusing experience.
+	// Exit immediately so operators get a clear error message at startup.
+	if sessionMgr.AuthEnabled() {
+		if err := oauthCfg.Validate(); err != nil {
+			slog.Error("authentication enabled but OAuth credentials missing", "error", err)
+			os.Exit(1)
+		}
+	}
+
 	mux := http.NewServeMux()
 
 	// Public routes — no auth required.
