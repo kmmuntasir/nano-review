@@ -266,6 +266,16 @@ func main() {
 
 	hub := api.NewHub()
 
+	var wsAllowedOrigins []string
+	if origins := os.Getenv("WS_ALLOWED_ORIGINS"); origins != "" {
+		for _, origin := range strings.Split(origins, ",") {
+			origin = strings.TrimSpace(origin)
+			if origin != "" {
+				wsAllowedOrigins = append(wsAllowedOrigins, origin)
+			}
+		}
+	}
+
 	sessionCleanupInterval := 1 * time.Hour
 	if v := os.Getenv("SESSION_CLEANUP_INTERVAL"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
@@ -346,7 +356,7 @@ func main() {
 	// Protected routes — RequireAuth middleware (no-op when AUTH_ENABLED=false).
 	mux.Handle("GET /reviews", sessionMgr.RequireAuth(api.HandleListReviews(store)))
 	mux.Handle("GET /reviews/{run_id}", sessionMgr.RequireAuth(api.HandleGetReview(store)))
-	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub)))
+	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub, wsAllowedOrigins)))
 	mux.Handle("GET /metrics", sessionMgr.RequireAuth(api.HandleGetMetrics(store)))
 
 	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(web.FS))))

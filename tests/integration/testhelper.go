@@ -104,7 +104,7 @@ func newIntegrationServer(t *testing.T) *integrationServer {
 	mux.Handle("GET /auth/me", sessionMgr.RequireAuth(auth.HandleSessionInfo(sessionMgr)))
 	mux.Handle("GET /reviews", sessionMgr.RequireAuth(api.HandleListReviews(&mockReviewGetter{})))
 	mux.Handle("GET /reviews/{run_id}", sessionMgr.RequireAuth(api.HandleGetReview(&mockReviewGetter{})))
-	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub)))
+	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub, nil)))
 	mux.Handle("GET /metrics", sessionMgr.RequireAuth(api.HandleGetMetrics(&mockReviewGetter{})))
 
 	server := httptest.NewTLSServer(mux)

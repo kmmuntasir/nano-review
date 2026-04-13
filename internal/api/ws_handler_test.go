@@ -44,7 +44,7 @@ func TestHandleWebSocket_ValidToken(t *testing.T) {
 				// Simulate the RequireAuth middleware injecting user into context
 				user := auth.User{ID: tt.userID, Source: tt.source}
 				ctx := auth.ContextWithUser(r.Context(), user)
-				HandleWebSocket(hub)(w, r.WithContext(ctx))
+				HandleWebSocket(hub, nil)(w, r.WithContext(ctx))
 			})
 
 			server := httptest.NewServer(mux)
@@ -91,7 +91,7 @@ func TestHandleWebSocket_NoUserInContext(t *testing.T) {
 	hub := NewHub()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/ws", HandleWebSocket(hub))
+	mux.HandleFunc("/ws", HandleWebSocket(hub, nil))
 
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -159,7 +159,7 @@ func TestHandleWebSocket_RequireAuthValidToken(t *testing.T) {
 		if user.Source != "cookie" {
 			t.Errorf("user source = %q, want %q", user.Source, "cookie")
 		}
-		HandleWebSocket(hub)(w, r)
+		HandleWebSocket(hub, nil)(w, r)
 	}))
 
 	mux := http.NewServeMux()
@@ -197,7 +197,7 @@ func TestHandleWebSocket_RequireAuthMissingCookie(t *testing.T) {
 
 	handler := sm.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("inner handler should not be called when cookie is missing")
-		HandleWebSocket(hub)(w, r)
+		HandleWebSocket(hub, nil)(w, r)
 	}))
 
 	mux := http.NewServeMux()
@@ -235,7 +235,7 @@ func TestHandleWebSocket_RequireAuthInvalidToken(t *testing.T) {
 
 	handler := sm.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Error("inner handler should not be called when token is invalid")
-		HandleWebSocket(hub)(w, r)
+		HandleWebSocket(hub, nil)(w, r)
 	}))
 
 	mux := http.NewServeMux()
@@ -280,7 +280,7 @@ func TestHandleWebSocket_ClientWithAttributes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ctx := auth.ContextWithUser(r.Context(), user)
-		HandleWebSocket(hub)(w, r.WithContext(ctx))
+		HandleWebSocket(hub, nil)(w, r.WithContext(ctx))
 	})
 
 	server := httptest.NewServer(mux)
@@ -468,7 +468,7 @@ func TestHandleWebSocket_AuthDisabledPassesThrough(t *testing.T) {
 		if user.ID != "" {
 			t.Errorf("expected empty user ID when auth disabled, got %q", user.ID)
 		}
-		HandleWebSocket(hub)(w, r)
+		HandleWebSocket(hub, nil)(w, r)
 	}))
 
 	mux := http.NewServeMux()

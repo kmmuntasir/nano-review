@@ -13,7 +13,6 @@ import (
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
-	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
 // originChecker returns a CheckOrigin function based on allowedOrigins config.
@@ -56,8 +55,10 @@ func originMatchesWildcardDomain(origin, wildcardDomain string) bool {
 }
 
 // HandleWebSocket upgrades an HTTP connection to WebSocket and registers the client.
-func HandleWebSocket(hub *Hub) http.HandlerFunc {
+func HandleWebSocket(hub *Hub, allowedOrigins []string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		upgrader.CheckOrigin = originChecker(allowedOrigins)
+
 		user := auth.UserFromContext(r.Context())
 
 		conn, err := upgrader.Upgrade(w, r, nil)
