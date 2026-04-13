@@ -2043,7 +2043,7 @@
         // Router
         // =========================================================
         function route() {
-            if (!Auth.checked() || !Auth.authenticated()) return;
+            if (!Auth.checked() || (Auth.authEnabled() && !Auth.authenticated())) return;
 
             var hash = location.hash || "#/dashboard";
 
