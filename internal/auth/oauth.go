@@ -187,6 +187,10 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 		if parts := strings.SplitN(stateParam, ":", 2); len(parts) == 2 && parts[1] != "" {
 			redirectPath = parts[1]
 		}
+		// Ensure redirectPath starts with "/" for absolute redirect (not relative to /auth/callback)
+		if !strings.HasPrefix(redirectPath, "/") {
+			redirectPath = "/" + redirectPath
+		}
 
 		code := r.URL.Query().Get("code")
 		if code == "" {
