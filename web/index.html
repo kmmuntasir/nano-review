@@ -1997,6 +1997,10 @@
         }
 
         function renderDashboardContent(m, reviews) {
+            // Store in state for WebSocket updates
+            dashboardState.metrics = m;
+            dashboardState.reviews = reviews || [];
+
             var html = '<div class="stats-grid">' +
                 statCard("Total Reviews", m.total_reviews || 0) +
                 statCard("Success Rate", formatPercent(m.success_count || 0, m.total_reviews || 0)) +
