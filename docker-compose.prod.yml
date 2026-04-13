@@ -79,6 +79,11 @@ services:
     #   ALLOWED_EMAIL_DOMAINS       Comma-separated list of allowed email domains for login.
     #                               If set, only users with matching email domains can authenticate.
     #
+    # Optional Variables (WebSocket Security):
+    #   WS_ALLOWED_ORIGINS           Comma-separated list of allowed WebSocket origins.
+    #                               Empty or unset allows all origins (NOT recommended for production).
+    #                               Supports wildcards: https://*.example.com
+    #
     # Optional Variables (Advanced):
     #   ANTHROPIC_BASE_URL          Custom API endpoint (e.g., proxy.z.ai)
     #   API_TIMEOUT_MS              Claude API timeout in milliseconds (default: 300000)

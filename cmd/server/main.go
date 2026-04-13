@@ -275,6 +275,12 @@ func main() {
 			}
 		}
 	}
+	if len(wsAllowedOrigins) == 0 {
+		if os.Getenv("PORT") == "8080" && os.Getenv("SECURE_COOKIES") != "false" {
+			slog.Warn("WS_ALLOWED_ORIGINS not set, WebSocket connections will accept any origin",
+				"recommendation", "set WS_ALLOWED_ORIGINS=https://yourdomain.com in production")
+		}
+	}
 
 	sessionCleanupInterval := 1 * time.Hour
 	if v := os.Getenv("SESSION_CLEANUP_INTERVAL"); v != "" {
