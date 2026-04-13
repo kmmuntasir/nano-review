@@ -1,7 +1,10 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -419,6 +422,124 @@ func TestOAuthStateCSRF(t *testing.T) {
 		}
 		t.Error("expected nano_oauth_state cookie to be cleared")
 	})
+}
+
+// --- Test Infrastructure (shared helpers for Track A tests) ---
+
+// testOAuthConfig returns a ready-to-use *OAuthConfig for tests.
+// The config has ClientID, ClientSecret, RedirectURL set, and a non-nil
+// SessionManager. Override individual fields as needed.
+func testOAuthConfig() *OAuthConfig {
+	return &OAuthConfig{
+		ClientID:     "test-client-id",
+		ClientSecret: "test-client-secret",
+		RedirectURL:  "http://localhost:8080/auth/callback",
+		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
+	}
+}
+
+// validStateToken generates a valid base64url-encoded 32-byte CSRF token,
+// matching the format produced by HandleGoogleLogin.
+func validStateToken() string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		panic("validStateToken: crypto/rand.Read failed: " + err.Error())
+	}
+	return base64.RawURLEncoding.EncodeToString(b)
+}
+
+// validUserInfo returns a struct matching the Google userinfo endpoint
+// JSON response shape decoded in HandleOAuthCallback.
+type validUserInfo struct {
+	ID      string `json:"id"`
+	Email   string `json:"email"`
+	Name    string `json:"name"`
+	Picture string `json:"picture"`
+}
+
+// defaultTestUserInfo returns a validUserInfo populated with sensible defaults.
+func defaultTestUserInfo() validUserInfo {
+	return validUserInfo{
+		ID:      "google-12345",
+		Email:   "test@example.com",
+		Name:    "Test User",
+		Picture: "https://example.com/pic.jpg",
+	}
+}
+
+// mockRoundTripper implements http.RoundTripper, intercepting HTTP calls
+// so tests can control responses for token exchange and userinfo endpoints
+// without hitting real Google servers.
+type mockRoundTripper struct {
+	// TokenResponse is the JSON body returned for token exchange requests
+	// (POST to Google's token endpoint).
+	TokenResponse string
+
+	// UserInfoResponse is the JSON body returned for userinfo GET requests.
+	UserInfoResponse string
+
+	// TokenStatus is the HTTP status code for token exchange (default 200).
+	TokenStatus int
+
+	// UserInfoStatus is the HTTP status code for userinfo requests (default 200).
+	UserInfoStatus int
+
+	// RequestLog records every request URL for assertion in tests.
+	RequestLog []string
+}
+
+func newMockRoundTripper() *mockRoundTripper {
+	return &mockRoundTripper{
+		TokenResponse:    `{"access_token":"mock-access-token","token_type":"Bearer","expires_in":3600}`,
+		UserInfoResponse: func() string {
+			info := defaultTestUserInfo()
+			b, _ := json.Marshal(info)
+			return string(b)
+		}(),
+		TokenStatus:    http.StatusOK,
+		UserInfoStatus: http.StatusOK,
+	}
+}
+
+// RoundTrip routes requests to the appropriate mock response based on the URL path.
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	m.RequestLog = append(m.RequestLog, req.URL.String())
+
+	body := io.NopCloser(strings.NewReader(""))
+	status := http.StatusOK
+
+	switch {
+	case req.URL.Path == "/token" || strings.Contains(req.URL.Host, "token"):
+		body = io.NopCloser(strings.NewReader(m.TokenResponse))
+		status = m.TokenStatus
+	case strings.Contains(req.URL.Path, "userinfo"):
+		body = io.NopCloser(strings.NewReader(m.UserInfoResponse))
+		status = m.UserInfoStatus
+	default:
+		body = io.NopCloser(strings.NewReader("{}"))
+	}
+
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       body,
+		Request:    req,
+	}, nil
+}
+
+// mockHTTPClient creates an *http.Client backed by a new mockRoundTripper.
+// Assign the returned client to cfg.HTTPClient before calling handlers.
+func mockHTTPClient() *http.Client {
+	return &http.Client{Transport: newMockRoundTripper()}
+}
+
+// mockHTTPClientWithConfig creates an *OAuthConfig with a mock HTTP client
+// already wired in. The mock is also returned for customization of responses.
+func mockHTTPClientWithConfig() (*OAuthConfig, *mockRoundTripper) {
+	rt := newMockRoundTripper()
+	cfg := testOAuthConfig()
+	cfg.HTTPClient = &http.Client{Transport: rt}
+	return cfg, rt
 }
 
 func newTestSessionManager(t *testing.T) *SessionManager {
