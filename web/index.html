@@ -2047,6 +2047,15 @@
             if (todayEl) todayEl.textContent = metrics.reviews_today || 0;
         }
 
+        function refreshMetrics() {
+            api.getMetrics().then(function(m) {
+                dashboardState.metrics = m;
+                updateMetricsCards(m);
+            }).catch(function() {
+                // Silently fail - metrics will update on next page load
+            });
+        }
+
         function statCard(label, value) {
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
