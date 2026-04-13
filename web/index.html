@@ -416,6 +416,79 @@
 
         .load-more-wrap { text-align: center; padding: 16px; }
 
+        /* Status distribution bar */
+        .status-bar {
+            height: 28px;
+            border-radius: 6px;
+            overflow: hidden;
+            display: flex;
+            background: var(--surface);
+        }
+        .status-bar__segment {
+            height: 100%;
+            transition: width 0.4s ease;
+            min-width: 2px;
+        }
+        .status-bar__segment--completed { background: var(--status-completed); }
+        .status-bar__segment--failed { background: var(--status-failed); }
+        .status-bar__segment--timed_out { background: var(--status-timed_out); }
+        .status-bar__segment--cancelled { background: var(--status-cancelled); }
+        .status-bar__segment--active { background: var(--status-running); }
+        .status-bar__legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .status-bar__legend-item {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .swatch {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 3px;
+        }
+        .swatch--completed { background: var(--status-completed); }
+        .swatch--failed { background: var(--status-failed); }
+        .swatch--timed_out { background: var(--status-timed_out); }
+        .swatch--cancelled { background: var(--status-cancelled); }
+        .swatch--active { background: var(--status-running); }
+
+        /* Active reviews */
+        .active-reviews {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .active-review-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 10px 14px;
+            border-radius: 6px;
+            background: var(--surface);
+            font-size: 14px;
+        }
+        .active-review-card .run-id {
+            font-family: "SF Mono", "Fira Code", monospace;
+            font-size: 13px;
+            color: var(--text-secondary);
+        }
+        .active-review-card .review-info {
+            flex: 1;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+        .active-review-card .review-info span {
+            color: var(--text-secondary);
+        }
+
         /* Review detail */
         .detail-header {
             display: flex;
