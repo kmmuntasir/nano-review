@@ -2067,15 +2067,6 @@
             if (todayEl) todayEl.textContent = metrics.reviews_today || 0;
         }
 
-        function refreshMetrics() {
-            api.getMetrics().then(function(m) {
-                dashboardState.metrics = m;
-                updateMetricsCards(m);
-            }).catch(function() {
-                // Silently fail - metrics will update on next page load
-            });
-        }
-
         function setupDashboardWebSocketHandlers() {
             // Clean up any existing handler
             if (dashboardState.onReviewUpdate) {
@@ -2114,11 +2105,6 @@
                         }
                     }
                     updateReviewsTable();
-
-                    // Refresh metrics on terminal status
-                    if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
-                        refreshMetrics();
-                    }
                 } else {
                     // Fallback: fetch via API (Phase 1 behavior)
                     var existingIdx = -1;
@@ -2160,10 +2146,6 @@
                         });
                     }
 
-                    // Update metrics when review reaches terminal state
-                    if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
-                        refreshMetrics();
-                    }
                 }
             };
 
