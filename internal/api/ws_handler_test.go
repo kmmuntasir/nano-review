@@ -307,6 +307,153 @@ func TestHandleWebSocket_ClientWithAttributes(t *testing.T) {
 	}
 }
 
+func TestOriginChecker_EmptyAllowedOrigins(t *testing.T) {
+	checker := originChecker(nil)
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	if !checker(req) {
+		t.Error("nil allowedOrigins should allow all origins")
+	}
+
+	checker = originChecker([]string{})
+	if !checker(req) {
+		t.Error("empty allowedOrigins should allow all origins")
+	}
+}
+
+func TestOriginChecker_ExactMatch(t *testing.T) {
+	origins := []string{"https://example.com", "https://app.example.com"}
+	checker := originChecker(origins)
+
+	tests := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"exact match first", "https://example.com", true},
+		{"exact match second", "https://app.example.com", true},
+		{"no match", "https://other.com", false},
+		{"http not matching https", "http://example.com", false},
+		{"trailing slash differs", "https://example.com/", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if checker(req) != tt.allowed {
+				t.Errorf("originChecker(%q) = %v, want %v", tt.origin, checker(req), tt.allowed)
+			}
+		})
+	}
+}
+
+func TestOriginChecker_WildcardSubdomain(t *testing.T) {
+	origins := []string{"https://*.example.com"}
+	checker := originChecker(origins)
+
+	tests := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"subdomain match", "https://sub.example.com", true},
+		{"nested subdomain", "https://a.b.example.com", true},
+		{"bare domain matches wildcard", "https://example.com", true},
+		{"different scheme rejected", "http://sub.example.com", false},
+		{"different domain rejected", "https://other.com", false},
+		{"different tld rejected", "https://example.org", false},
+		{"similar but different domain", "https://example.com.evil.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if checker(req) != tt.allowed {
+				t.Errorf("originChecker(%q) = %v, want %v", tt.origin, checker(req), tt.allowed)
+			}
+		})
+	}
+}
+
+func TestOriginChecker_MissingOriginHeader(t *testing.T) {
+	origins := []string{"https://example.com"}
+	checker := originChecker(origins)
+
+	req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+	// No Origin header set — simulates same-origin request
+	if !checker(req) {
+		t.Error("missing Origin header should be allowed (same-origin)")
+	}
+}
+
+func TestOriginChecker_MixedExactAndWildcard(t *testing.T) {
+	origins := []string{"https://exact.com", "https://*.wildcard.com", "http://localhost:8080"}
+	checker := originChecker(origins)
+
+	tests := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"exact match", "https://exact.com", true},
+		{"wildcard subdomain", "https://sub.wildcard.com", true},
+		{"wildcard bare domain", "https://wildcard.com", true},
+		{"http local dev", "http://localhost:8080", true},
+		{"not in list", "https://other.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if checker(req) != tt.allowed {
+				t.Errorf("originChecker(%q) = %v, want %v", tt.origin, checker(req), tt.allowed)
+			}
+		})
+	}
+}
+
+func TestOriginMatchesWildcardDomain(t *testing.T) {
+	tests := []struct {
+		origin        string
+		wildcardDomain string
+		want          bool
+	}{
+		{"https://sub.example.com", "example.com", true},
+		{"https://example.com", "example.com", true},
+		{"https://a.b.example.com", "example.com", true},
+		{"http://sub.example.com", "example.com", false},
+		{"https://example.org", "example.com", false},
+		{"ftp://sub.example.com", "example.com", false},
+		{"sub.example.com", "example.com", false},
+		{"https://example.com.evil.com", "example.com", false},
+		{"https://example.com:443", "example.com:443", true},
+		{"https://sub.example.com:443", "example.com:443", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.origin+" vs "+tt.wildcardDomain, func(t *testing.T) {
+			got := originMatchesWildcardDomain(tt.origin, tt.wildcardDomain)
+			if got != tt.want {
+				t.Errorf("originMatchesWildcardDomain(%q, %q) = %v, want %v", tt.origin, tt.wildcardDomain, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestOriginChecker_ReturnsFunction(t *testing.T) {
+	checker := originChecker([]string{"https://example.com"})
+	if checker == nil {
+		t.Fatal("originChecker should return a non-nil function")
+	}
+
+	// Verify it's a func(*http.Request) bool
+	var _ func(*http.Request) bool = checker
+}
+
 func TestHandleWebSocket_AuthDisabledPassesThrough(t *testing.T) {
 	t.Setenv("AUTH_ENABLED", "false")
 	defer t.Setenv("AUTH_ENABLED", "")
