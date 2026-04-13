@@ -21,6 +21,12 @@
 #    - WEBHOOK_SECRET: Shared secret with GitHub Actions for webhook auth
 #    - ANTHROPIC_AUTH_TOKEN: Claude API token for running reviews
 #    - GITHUB_PAT: GitHub Personal Access Token with 'repo' scope (minimal)
+#    - (When auth enabled) GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, SESSION_SECRET
+#
+#    NOTE: Session cookies use the Secure flag (HttpOnly, SameSite=Lax).
+#    This requires HTTPS. If deploying behind a reverse proxy that terminates
+#    TLS, the proxy must forward to this container over HTTP — the Secure
+#    flag is satisfied as long as the browser sees HTTPS at the edge.
 #
 # 4. Monitoring:
 #    - Healthcheck endpoint: GET /review (returns 405 Method Not Allowed)
@@ -49,6 +55,12 @@ services:
     #   ANTHROPIC_AUTH_TOKEN        Claude API token (sk-ant-...)
     #   GITHUB_PAT                  GitHub PAT with 'repo' scope (ghp_...)
     #
+    # Required Variables (when AUTH_ENABLED != false):
+    #   GOOGLE_CLIENT_ID            Google OAuth 2.0 client ID
+    #   GOOGLE_CLIENT_SECRET        Google OAuth 2.0 client secret
+    #   SESSION_SECRET              HMAC signing key for session tokens (>= 32 chars).
+    #                               Falls back to WEBHOOK_SECRET if not set (not recommended).
+    #
     # Optional Variables (with defaults):
     #   PORT                        Server port (default: 8080)
     #   CLAUDE_CODE_PATH            Path to claude binary (default: auto-detected)
@@ -56,6 +68,16 @@ services:
     #   CLAUDE_MODEL                Model for reviews: haiku|sonnet|opus (default: sonnet)
     #   MAX_REVIEW_DURATION         Review timeout in seconds (default: 600)
     #   MAX_RETRIES                 Retry attempts for transient failures (default: 2)
+    #
+    # Optional Variables (Authentication):
+    #   AUTH_ENABLED                Enable dashboard OAuth login (default: true)
+    #   GOOGLE_OAUTH_REDIRECT_URI   OAuth callback URL (e.g., https://example.com/auth/callback)
+    #   SESSION_MAX_AGE_HOURS       Session token lifetime in hours (default: 24)
+    #   SECURE_COOKIES              Set to "false" to disable the Secure flag on cookies.
+    #                               Only use behind a trusted reverse proxy that terminates TLS
+    #                               but forwards over plain HTTP to the container. (default: true)
+    #   ALLOWED_EMAIL_DOMAINS       Comma-separated list of allowed email domains for login.
+    #                               If set, only users with matching email domains can authenticate.
     #
     # Optional Variables (Advanced):
     #   ANTHROPIC_BASE_URL          Custom API endpoint (e.g., proxy.z.ai)
