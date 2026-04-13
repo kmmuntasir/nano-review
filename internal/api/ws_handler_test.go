@@ -389,6 +389,42 @@ func TestOriginChecker_MissingOriginHeader(t *testing.T) {
 	}
 }
 
+func TestOriginCheckerMultipleOrigins(t *testing.T) {
+	origins := []string{
+		"https://app.example.com",
+		"https://admin.example.com",
+		"https://dashboard.example.org",
+		"https://*.internal.example.com",
+	}
+	checker := originChecker(origins)
+
+	tests := []struct {
+		name    string
+		origin  string
+		allowed bool
+	}{
+		{"first exact origin allowed", "https://app.example.com", true},
+		{"second exact origin allowed", "https://admin.example.com", true},
+		{"third exact origin allowed", "https://dashboard.example.org", true},
+		{"wildcard subdomain allowed", "https://api.internal.example.com", true},
+		{"wildcard bare domain allowed", "https://internal.example.com", true},
+		{"origin not in list rejected", "https://evil.com", false},
+		{"origin not in list rejected similar domain", "https://public.example.com", false},
+		{"origin not in list rejected different subdomain", "https://evil.internal.example.com.evil.com", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/ws", nil)
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if checker(req) != tt.allowed {
+				t.Errorf("originChecker(%q) = %v, want %v", tt.origin, checker(req), tt.allowed)
+			}
+		})
+	}
+}
+
 func TestOriginChecker_MixedExactAndWildcard(t *testing.T) {
 	origins := []string{"https://exact.com", "https://*.wildcard.com", "http://localhost:8080"}
 	checker := originChecker(origins)
