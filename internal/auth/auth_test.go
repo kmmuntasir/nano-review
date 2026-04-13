@@ -81,25 +81,76 @@ func TestTokenRoundTrip(t *testing.T) {
 	key := testKey(t)
 	m := NewSessionManager(key, 1, nil)
 
-	token := m.CreateToken("session-abc-123")
+	info := TokenUserInfo{Email: "test@example.com", Name: "Test User", Picture: "https://example.com/pic.jpg"}
+	token := m.CreateToken("session-abc-123", info)
 
-	parsedID, err := m.ValidateToken(token)
+	session, err := m.ValidateToken(token)
 	if err != nil {
 		t.Fatalf("ValidateToken() error = %v", err)
 	}
-	if parsedID != "session-abc-123" {
-		t.Errorf("ValidateToken() id = %q, want %q", parsedID, "session-abc-123")
+	if session.SessionID != "session-abc-123" {
+		t.Errorf("ValidateToken() id = %q, want %q", session.SessionID, "session-abc-123")
+	}
+}
+
+// --- Token carries user info round-trip ---
+
+func TestTokenCarriesUserInfo(t *testing.T) {
+	key := testKey(t)
+	m := NewSessionManager(key, 1, nil)
+
+	info := TokenUserInfo{
+		Email:   "alice@example.com",
+		Name:    "Alice Smith",
+		Picture: "https://example.com/alice.jpg",
+	}
+	token := m.CreateToken("sess-ui-1", info)
+
+	session, err := m.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("ValidateToken() error = %v", err)
+	}
+
+	if session.SessionID != "sess-ui-1" {
+		t.Errorf("SessionID = %q, want %q", session.SessionID, "sess-ui-1")
+	}
+	if session.UserInfo.Email != "alice@example.com" {
+		t.Errorf("Email = %q, want %q", session.UserInfo.Email, "alice@example.com")
+	}
+	if session.UserInfo.Name != "Alice Smith" {
+		t.Errorf("Name = %q, want %q", session.UserInfo.Name, "Alice Smith")
+	}
+	if session.UserInfo.Picture != "https://example.com/alice.jpg" {
+		t.Errorf("Picture = %q, want %q", session.UserInfo.Picture, "https://example.com/alice.jpg")
+	}
+}
+
+func TestTokenCarriesEmptyUserInfo(t *testing.T) {
+	key := testKey(t)
+	m := NewSessionManager(key, 1, nil)
+
+	token := m.CreateToken("sess-empty", TokenUserInfo{})
+
+	session, err := m.ValidateToken(token)
+	if err != nil {
+		t.Fatalf("ValidateToken() error = %v", err)
+	}
+	if session.SessionID != "sess-empty" {
+		t.Errorf("SessionID = %q, want %q", session.SessionID, "sess-empty")
+	}
+	if session.UserInfo.Email != "" {
+		t.Errorf("Email = %q, want empty", session.UserInfo.Email)
 	}
 }
 
 func TestCreateTokenFormat(t *testing.T) {
 	m := NewSessionManager(testKey(t), 1, nil)
 
-	token := m.CreateToken("sess-1")
+	token := m.CreateToken("sess-1", TokenUserInfo{})
 
 	parts := strings.Split(token, ".")
-	if len(parts) != 4 {
-		t.Fatalf("token should have 4 dot-separated segments, got %d", len(parts))
+	if len(parts) != 5 {
+		t.Fatalf("token should have 5 dot-separated segments, got %d", len(parts))
 	}
 
 	for i, part := range parts {
@@ -130,15 +181,15 @@ func TestValidateTokenErrors(t *testing.T) {
 	})
 
 	t.Run("garbage segments", func(t *testing.T) {
-		_, err := m.ValidateToken("!!!.!!!.!!!.!!!")
+		_, err := m.ValidateToken("!!!.!!!.!!!.!!!.!!!")
 		if !errors.Is(err, ErrInvalidToken) {
 			t.Errorf("error = %v, want ErrInvalidToken", err)
 		}
 	})
 
 	t.Run("tampered session ID", func(t *testing.T) {
-		token := m.CreateToken("session-1")
-		parts := strings.SplitN(token, ".", 4)
+		token := m.CreateToken("session-1", TokenUserInfo{})
+		parts := strings.SplitN(token, ".", 5)
 		// Replace the session ID segment with something different.
 		parts[0] = encodeSegment("tampered-id")
 		fake := strings.Join(parts, ".")
@@ -150,9 +201,9 @@ func TestValidateTokenErrors(t *testing.T) {
 	})
 
 	t.Run("tampered signature", func(t *testing.T) {
-		token := m.CreateToken("session-1")
-		parts := strings.SplitN(token, ".", 4)
-		parts[3] = encodeSegment("fake-signature")
+		token := m.CreateToken("session-1", TokenUserInfo{})
+		parts := strings.SplitN(token, ".", 5)
+		parts[4] = encodeSegment("fake-signature")
 		fake := strings.Join(parts, ".")
 
 		_, err := m.ValidateToken(fake)
@@ -165,7 +216,7 @@ func TestValidateTokenErrors(t *testing.T) {
 		m1 := NewSessionManager(testKey(t), 1, nil)
 		m2 := NewSessionManager(testKey(t), 1, nil)
 
-		token := m1.CreateToken("session-1")
+		token := m1.CreateToken("session-1", TokenUserInfo{})
 		_, err := m2.ValidateToken(token)
 		if !errors.Is(err, ErrInvalidToken) {
 			t.Errorf("error = %v, want ErrInvalidToken", err)
@@ -175,7 +226,7 @@ func TestValidateTokenErrors(t *testing.T) {
 	t.Run("expired token", func(t *testing.T) {
 		// Use 0.0001 hours (~0.36 seconds) so the token expires immediately.
 		expired := NewSessionManager(key, 0.0001, nil)
-		token := expired.CreateToken("session-1")
+		token := expired.CreateToken("session-1", TokenUserInfo{})
 
 		// Wait for expiration.
 		time.Sleep(400 * time.Millisecond)
@@ -191,7 +242,7 @@ func TestValidateTokenNonExhaustive(t *testing.T) {
 	// Additional edge cases for segment parsing.
 	t.Run("invalid base64 in session ID segment", func(t *testing.T) {
 		m := NewSessionManager(testKey(t), 1, nil)
-		_, err := m.ValidateToken("not-valid-base64!!.bmU=.bmU=.bmU=")
+		_, err := m.ValidateToken("not-valid-base64!!.bmU=.bmU=.bmU=.bmU=")
 		if !errors.Is(err, ErrInvalidToken) {
 			t.Errorf("error = %v, want ErrInvalidToken", err)
 		}
@@ -202,7 +253,7 @@ func TestValidateTokenNonExhaustive(t *testing.T) {
 
 func TestSetCookie(t *testing.T) {
 	m := NewSessionManager(testKey(t), 12, []string{"example.com"})
-	token := m.CreateToken("sess-1")
+	token := m.CreateToken("sess-1", TokenUserInfo{})
 
 	w := httptest.NewRecorder()
 	m.SetCookie(w, token)
@@ -243,7 +294,7 @@ func TestSetCookieNoDomain(t *testing.T) {
 	m := NewSessionManager(testKey(t), 1, nil)
 
 	w := httptest.NewRecorder()
-	m.SetCookie(w, m.CreateToken("sess-1"))
+	m.SetCookie(w, m.CreateToken("sess-1", TokenUserInfo{}))
 
 	cookies := w.Result().Cookies()
 	if len(cookies) != 1 {
@@ -279,7 +330,7 @@ func TestClearCookie(t *testing.T) {
 
 func TestSetTokenCookie(t *testing.T) {
 	m := NewSessionManager(testKey(t), 12, []string{"example.com"})
-	token := m.CreateToken("sess-1")
+	token := m.CreateToken("sess-1", TokenUserInfo{})
 
 	w := httptest.NewRecorder()
 	m.SetTokenCookie(w, token)
@@ -361,7 +412,7 @@ func TestTokenUniqueness(t *testing.T) {
 	seen := make(map[string]struct{})
 	const n = 100
 	for i := 0; i < n; i++ {
-		token := m.CreateToken("sess-" + strings.Repeat("x", i))
+		token := m.CreateToken("sess-"+strings.Repeat("x", i), TokenUserInfo{})
 		if _, exists := seen[token]; exists {
 			t.Fatalf("duplicate token generated at iteration %d", i)
 		}
@@ -423,7 +474,7 @@ func TestRequireAuth(t *testing.T) {
 		m := NewSessionManager(key, 1, nil)
 		m.authEnabled = true
 
-		token := m.CreateToken("sess-abc")
+		token := m.CreateToken("sess-abc", TokenUserInfo{Email: "test@example.com", Name: "Test", Picture: "https://pic.jpg"})
 		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
 			if user.ID != "sess-abc" {
@@ -502,7 +553,7 @@ func TestRequireAuth(t *testing.T) {
 	t.Run("expired token returns 401", func(t *testing.T) {
 		expired := NewSessionManager(key, 0.0001, nil)
 		expired.authEnabled = true
-		token := expired.CreateToken("sess-expired")
+		token := expired.CreateToken("sess-expired", TokenUserInfo{})
 
 		time.Sleep(400 * time.Millisecond)
 
@@ -553,7 +604,7 @@ func TestRequireAuth(t *testing.T) {
 		}))
 
 		req := httptest.NewRequest(http.MethodGet, "/reviews", nil)
-		req.AddCookie(&http.Cookie{Name: "wrong_cookie", Value: m.CreateToken("sess-1")})
+		req.AddCookie(&http.Cookie{Name: "wrong_cookie", Value: m.CreateToken("sess-1", TokenUserInfo{})})
 		rec := httptest.NewRecorder()
 
 		handler.ServeHTTP(rec, req)
@@ -584,7 +635,7 @@ func TestRequireAuth(t *testing.T) {
 		m := NewSessionManager(key, 1, nil)
 		m.authEnabled = true
 
-		token := m.CreateToken("sess-query")
+		token := m.CreateToken("sess-query", TokenUserInfo{})
 		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
 			if user.ID != "sess-query" {
@@ -628,8 +679,8 @@ func TestRequireAuth(t *testing.T) {
 		m := NewSessionManager(key, 1, nil)
 		m.authEnabled = true
 
-		cookieToken := m.CreateToken("sess-cookie")
-		queryToken := m.CreateToken("sess-query")
+		cookieToken := m.CreateToken("sess-cookie", TokenUserInfo{})
+		queryToken := m.CreateToken("sess-query", TokenUserInfo{})
 
 		handler := m.RequireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			user := UserFromContext(r.Context())
@@ -902,13 +953,13 @@ func TestTokenRoundTripVariousSessionIDs(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			token := m.CreateToken(tt.sessionID)
-			parsedID, err := m.ValidateToken(token)
+			token := m.CreateToken(tt.sessionID, TokenUserInfo{})
+			session, err := m.ValidateToken(token)
 			if err != nil {
 				t.Fatalf("ValidateToken() error = %v", err)
 			}
-			if parsedID != tt.sessionID {
-				t.Errorf("ValidateToken() id = %q, want %q", parsedID, tt.sessionID)
+			if session.SessionID != tt.sessionID {
+				t.Errorf("ValidateToken() id = %q, want %q", session.SessionID, tt.sessionID)
 			}
 		})
 	}
@@ -921,12 +972,12 @@ func TestValidateTokenWrongTimestampLength(t *testing.T) {
 
 	m := NewSessionManager(testKey(t), 1, nil)
 
-	sessionIDSig := m.CreateToken("sess-1")
-	parts := strings.SplitN(sessionIDSig, ".", 4)
+	sessionIDSig := m.CreateToken("sess-1", TokenUserInfo{})
+	parts := strings.SplitN(sessionIDSig, ".", 5)
 
 	// Replace timestamp with a segment that decodes to wrong length.
 	shortTS := base64.RawURLEncoding.EncodeToString([]byte{1, 2, 3})
-	fake := parts[0] + "." + shortTS + "." + parts[2] + "." + parts[3]
+	fake := parts[0] + "." + shortTS + "." + parts[2] + "." + parts[3] + "." + parts[4]
 
 	_, err := m.ValidateToken(fake)
 	if !errors.Is(err, ErrInvalidToken) {
@@ -940,11 +991,11 @@ func TestValidateTokenTamperedRandomBytes(t *testing.T) {
 	t.Parallel()
 
 	m := NewSessionManager(testKey(t), 1, nil)
-	token := m.CreateToken("sess-1")
-	parts := strings.SplitN(token, ".", 4)
+	token := m.CreateToken("sess-1", TokenUserInfo{})
+	parts := strings.SplitN(token, ".", 5)
 
 	fakeRand := base64.RawURLEncoding.EncodeToString(make([]byte, randomBytesLength))
-	fake := parts[0] + "." + parts[1] + "." + fakeRand + "." + parts[3]
+	fake := parts[0] + "." + parts[1] + "." + fakeRand + "." + parts[3] + "." + parts[4]
 
 	_, err := m.ValidateToken(fake)
 	if !errors.Is(err, ErrInvalidToken) {
@@ -958,7 +1009,7 @@ func TestValidateTokenTooManySegments(t *testing.T) {
 	t.Parallel()
 
 	m := NewSessionManager(testKey(t), 1, nil)
-	token := m.CreateToken("sess-1")
+	token := m.CreateToken("sess-1", TokenUserInfo{})
 	fake := token + ".extra"
 
 	_, err := m.ValidateToken(fake)
@@ -974,7 +1025,7 @@ func TestValidateTokenOnlyDots(t *testing.T) {
 
 	m := NewSessionManager(testKey(t), 1, nil)
 
-	_, err := m.ValidateToken("...")
+	_, err := m.ValidateToken("....")
 	if !errors.Is(err, ErrInvalidToken) {
 		t.Errorf("error = %v, want ErrInvalidToken", err)
 	}
@@ -1025,7 +1076,7 @@ func TestRequireAuthPreservesContext(t *testing.T) {
 	m := NewSessionManager(key, 1, nil)
 	m.authEnabled = true
 
-	token := m.CreateToken("sess-ctx")
+	token := m.CreateToken("sess-ctx", TokenUserInfo{})
 
 	parentCtx := contextWithTestValue(context.Background(), "test-key", "test-value")
 
@@ -1059,8 +1110,8 @@ func TestCreateTokenValidBase64(t *testing.T) {
 	t.Parallel()
 
 	m := NewSessionManager(testKey(t), 1, nil)
-	token := m.CreateToken("sess-b64")
-	parts := strings.SplitN(token, ".", 4)
+	token := m.CreateToken("sess-b64", TokenUserInfo{})
+	parts := strings.SplitN(token, ".", 5)
 
 	for i, part := range parts {
 		_, err := base64.RawURLEncoding.DecodeString(part)
@@ -1077,14 +1128,14 @@ func TestValidateTokenNotExpiredWithinMaxAge(t *testing.T) {
 
 	// Create token with current timestamp, validate immediately.
 	m := NewSessionManager(testKey(t), 24, nil)
-	token := m.CreateToken("sess-fresh")
+	token := m.CreateToken("sess-fresh", TokenUserInfo{})
 
-	parsedID, err := m.ValidateToken(token)
+	session, err := m.ValidateToken(token)
 	if err != nil {
 		t.Fatalf("ValidateToken() on fresh token error = %v", err)
 	}
-	if parsedID != "sess-fresh" {
-		t.Errorf("ValidateToken() id = %q, want %q", parsedID, "sess-fresh")
+	if session.SessionID != "sess-fresh" {
+		t.Errorf("ValidateToken() id = %q, want %q", session.SessionID, "sess-fresh")
 	}
 }
 
@@ -1106,14 +1157,20 @@ func TestValidateTokenOldTimestamp(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	sig := m.computeSignature(sessionID, ts, randBytes)
+	userInfoJSON, err := json.Marshal(TokenUserInfo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sig := m.computeSignature(sessionID, ts, randBytes, userInfoJSON)
 
 	token := encodeSegment(sessionID) + "." +
 		encodeSegment(string(ts)) + "." +
 		encodeSegment(string(randBytes)) + "." +
+		encodeSegment(string(userInfoJSON)) + "." +
 		encodeSegment(string(sig))
 
-	_, err := m.ValidateToken(token)
+	_, err = m.ValidateToken(token)
 	if !errors.Is(err, ErrExpiredToken) {
 		t.Errorf("error = %v, want ErrExpiredToken", err)
 	}
@@ -1237,7 +1294,7 @@ func TestSetCookieSecureFlag(t *testing.T) {
 		m := NewSessionManager(testKey(t), 1, nil)
 
 		w := httptest.NewRecorder()
-		m.SetCookie(w, m.CreateToken("sess-1"))
+		m.SetCookie(w, m.CreateToken("sess-1", TokenUserInfo{}))
 
 		cookies := w.Result().Cookies()
 		if len(cookies) != 1 {
@@ -1253,7 +1310,7 @@ func TestSetCookieSecureFlag(t *testing.T) {
 		m := NewSessionManager(testKey(t), 1, nil)
 
 		w := httptest.NewRecorder()
-		m.SetCookie(w, m.CreateToken("sess-1"))
+		m.SetCookie(w, m.CreateToken("sess-1", TokenUserInfo{}))
 
 		cookies := w.Result().Cookies()
 		if len(cookies) != 1 {
@@ -1275,7 +1332,7 @@ func TestSecureCookieFlag(t *testing.T) {
 		t.Fatal("expected Secure()=true by default")
 	}
 
-	token := m.CreateToken("sess-secure")
+	token := m.CreateToken("sess-secure", TokenUserInfo{})
 
 	// SetCookie
 	w := httptest.NewRecorder()
@@ -1316,7 +1373,7 @@ func TestSecureCookieFlagDisabled(t *testing.T) {
 		t.Fatal("expected Secure()=false when SECURE_COOKIES=false")
 	}
 
-	token := m.CreateToken("sess-insecure")
+	token := m.CreateToken("sess-insecure", TokenUserInfo{})
 
 	// SetCookie
 	w := httptest.NewRecorder()
@@ -1355,7 +1412,7 @@ func TestSetTokenCookieSecureFlag(t *testing.T) {
 		m := NewSessionManager(testKey(t), 1, nil)
 
 		w := httptest.NewRecorder()
-		m.SetTokenCookie(w, m.CreateToken("sess-1"))
+		m.SetTokenCookie(w, m.CreateToken("sess-1", TokenUserInfo{}))
 
 		cookies := w.Result().Cookies()
 		if len(cookies) != 1 {
@@ -1371,7 +1428,7 @@ func TestSetTokenCookieSecureFlag(t *testing.T) {
 		m := NewSessionManager(testKey(t), 1, nil)
 
 		w := httptest.NewRecorder()
-		m.SetTokenCookie(w, m.CreateToken("sess-1"))
+		m.SetTokenCookie(w, m.CreateToken("sess-1", TokenUserInfo{}))
 
 		cookies := w.Result().Cookies()
 		if len(cookies) != 1 {

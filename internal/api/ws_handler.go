@@ -28,11 +28,16 @@ func HandleWebSocket(hub *Hub) http.HandlerFunc {
 			return
 		}
 
+		userID := user.Email
+		if userID == "" {
+			userID = user.ID
+		}
+
 		client := &WSClient{
 			hub:    hub,
 			conn:   conn,
 			send:   make(chan []byte, 256),
-			userID: user.ID,
+			userID: userID,
 		}
 
 		hub.Register(client)

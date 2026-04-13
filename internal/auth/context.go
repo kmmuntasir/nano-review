@@ -21,6 +21,15 @@ type User struct {
 	// (e.g., "webhook", "api_token", "jwt").
 	Source string
 
+	// Email is the user's email address, populated from OAuth token claims.
+	Email string
+
+	// Name is the user's display name, populated from OAuth token claims.
+	Name string
+
+	// PictureURL is the URL to the user's avatar, populated from OAuth token claims.
+	PictureURL string
+
 	// Attributes holds optional additional information about the user.
 	// For webhooks, this might include the originating repository or event type.
 	Attributes map[string]string
@@ -36,8 +45,17 @@ func (u User) String() string {
 
 // LogValue returns a structured log value for the User.
 func (u User) LogValue() slog.Value {
-	attrs := make([]slog.Attr, 0, len(u.Attributes)+2)
+	attrs := make([]slog.Attr, 0, len(u.Attributes)+5)
 	attrs = append(attrs, slog.String("id", u.ID), slog.String("source", u.Source))
+	if u.Email != "" {
+		attrs = append(attrs, slog.String("email", u.Email))
+	}
+	if u.Name != "" {
+		attrs = append(attrs, slog.String("name", u.Name))
+	}
+	if u.PictureURL != "" {
+		attrs = append(attrs, slog.String("picture_url", u.PictureURL))
+	}
 	for k, v := range u.Attributes {
 		attrs = append(attrs, slog.String(k, v))
 	}

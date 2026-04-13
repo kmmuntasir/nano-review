@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -38,6 +39,20 @@ var (
 	// ErrExpiredToken is returned when a token's timestamp is beyond maxAge.
 	ErrExpiredToken = errors.New("expired session token")
 )
+
+// TokenUserInfo carries user profile information embedded in the session token.
+type TokenUserInfo struct {
+	Email   string `json:"e"`
+	Name    string `json:"n"`
+	Picture string `json:"p"`
+}
+
+// ValidatedSession is returned by ValidateToken containing the session ID and
+// the user info extracted from the token.
+type ValidatedSession struct {
+	SessionID string
+	UserInfo  TokenUserInfo
+}
 
 // SessionManager handles session token creation, validation, and cookie management.
 // Tokens are stateless: they carry the session ID, a creation timestamp, and an
@@ -98,14 +113,14 @@ func parseSecureCookies() bool {
 	return true
 }
 
-// CreateToken generates a signed, stateless session token containing the session ID
-// and a creation timestamp.
+// CreateToken generates a signed, stateless session token containing the session ID,
+// user info, and a creation timestamp.
 //
-// Token format: base64(sessionID) + "." + base64(timestamp_bytes) + "." + base64(random) + "." + base64(signature)
+// Token format: base64(sessionID) + "." + base64(timestamp_bytes) + "." + base64(random) + "." + base64(userInfoJSON) + "." + base64(signature)
 //
-// The signature covers sessionID + timestamp + random bytes to prevent token forgery
-// and replay attacks.
-func (m *SessionManager) CreateToken(sessionID string) string {
+// The signature covers sessionID + timestamp + random + userInfoJSON to prevent
+// token forgery and replay attacks.
+func (m *SessionManager) CreateToken(sessionID string, info TokenUserInfo) string {
 	ts := make([]byte, 8)
 	binary.BigEndian.PutUint64(ts, uint64(time.Now().UTC().Unix()))
 
@@ -115,58 +130,78 @@ func (m *SessionManager) CreateToken(sessionID string) string {
 		panic(fmt.Sprintf("auth: failed to generate random bytes: %v", err))
 	}
 
-	sig := m.computeSignature(sessionID, ts, randBytes)
+	userInfoJSON, err := json.Marshal(info)
+	if err != nil {
+		panic(fmt.Sprintf("auth: failed to marshal user info: %v", err))
+	}
+
+	sig := m.computeSignature(sessionID, ts, randBytes, userInfoJSON)
 
 	return encodeSegment(sessionID) + "." +
 		encodeSegment(string(ts)) +
 		"." + encodeSegment(string(randBytes)) +
+		"." + encodeSegment(string(userInfoJSON)) +
 		"." + encodeSegment(string(sig))
 }
 
-// ValidateToken parses and validates a token, returning the embedded session ID.
+// ValidateToken parses and validates a token, returning the embedded session ID
+// and user info.
 // Returns ErrInvalidToken if the signature doesn't match, or ErrExpiredToken if
 // the token's age exceeds maxAge.
-func (m *SessionManager) ValidateToken(token string) (string, error) {
-	parts := strings.SplitN(token, ".", 4)
-	if len(parts) != 4 {
-		return "", ErrInvalidToken
+func (m *SessionManager) ValidateToken(token string) (*ValidatedSession, error) {
+	parts := strings.SplitN(token, ".", 5)
+	if len(parts) != 5 {
+		return nil, ErrInvalidToken
 	}
 
 	sessionIDBytes, err := decodeSegment(parts[0])
 	if err != nil {
-		return "", fmt.Errorf("%w: malformed session ID segment", ErrInvalidToken)
+		return nil, fmt.Errorf("%w: malformed session ID segment", ErrInvalidToken)
 	}
 
 	tsBytes, err := decodeSegment(parts[1])
 	if err != nil || len(tsBytes) != 8 {
-		return "", fmt.Errorf("%w: malformed timestamp segment", ErrInvalidToken)
+		return nil, fmt.Errorf("%w: malformed timestamp segment", ErrInvalidToken)
 	}
 
 	randBytes, err := decodeSegment(parts[2])
 	if err != nil {
-		return "", fmt.Errorf("%w: malformed random segment", ErrInvalidToken)
+		return nil, fmt.Errorf("%w: malformed random segment", ErrInvalidToken)
 	}
 
-	sigBytes, err := decodeSegment(parts[3])
+	userInfoBytes, err := decodeSegment(parts[3])
 	if err != nil {
-		return "", fmt.Errorf("%w: malformed signature segment", ErrInvalidToken)
+		return nil, fmt.Errorf("%w: malformed user info segment", ErrInvalidToken)
+	}
+
+	sigBytes, err := decodeSegment(parts[4])
+	if err != nil {
+		return nil, fmt.Errorf("%w: malformed signature segment", ErrInvalidToken)
 	}
 
 	sessionID := string(sessionIDBytes)
 
 	// Verify HMAC.
-	expectedSig := m.computeSignature(sessionID, tsBytes, randBytes)
+	expectedSig := m.computeSignature(sessionID, tsBytes, randBytes, userInfoBytes)
 	if !hmac.Equal(sigBytes, expectedSig) {
-		return "", ErrInvalidToken
+		return nil, ErrInvalidToken
 	}
 
 	// Check expiration.
 	createdAt := time.Unix(int64(binary.BigEndian.Uint64(tsBytes)), 0)
 	if time.Since(createdAt) > m.maxAge {
-		return "", ErrExpiredToken
+		return nil, ErrExpiredToken
 	}
 
-	return sessionID, nil
+	var userInfo TokenUserInfo
+	if err := json.Unmarshal(userInfoBytes, &userInfo); err != nil {
+		return nil, fmt.Errorf("%w: malformed user info JSON", ErrInvalidToken)
+	}
+
+	return &ValidatedSession{
+		SessionID: sessionID,
+		UserInfo:  userInfo,
+	}, nil
 }
 
 // SetCookie writes the session cookie to an http.ResponseWriter.
@@ -278,15 +313,18 @@ func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		sessionID, err := m.ValidateToken(tokenValue)
+		session, err := m.ValidateToken(tokenValue)
 		if err != nil {
 			writeUnauthorized(w, "invalid or expired session token")
 			return
 		}
 
 		user := User{
-			ID:     sessionID,
-			Source: source,
+			ID:         session.SessionID,
+			Source:     source,
+			Email:      session.UserInfo.Email,
+			Name:       session.UserInfo.Name,
+			PictureURL: session.UserInfo.Picture,
 		}
 
 		ctx := ContextWithUser(r.Context(), user)
@@ -302,12 +340,13 @@ func writeUnauthorized(w http.ResponseWriter, msg string) {
 }
 
 // computeSignature generates an HMAC-SHA256 signature over the session ID,
-// timestamp, and random bytes.
-func (m *SessionManager) computeSignature(sessionID string, ts, randBytes []byte) []byte {
+// timestamp, random bytes, and user info JSON.
+func (m *SessionManager) computeSignature(sessionID string, ts, randBytes, userInfoJSON []byte) []byte {
 	mac := hmac.New(sha256.New, m.hmacKey)
 	mac.Write([]byte(sessionID))
 	mac.Write(ts)
 	mac.Write(randBytes)
+	mac.Write(userInfoJSON)
 	return mac.Sum(nil)
 }
 

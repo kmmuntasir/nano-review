@@ -127,7 +127,7 @@ func (s *integrationServer) Close() {
 
 // CreateToken creates a valid session token using the server's SessionManager.
 func (s *integrationServer) CreateToken(sessionID string) string {
-	return s.sessionMgr.CreateToken(sessionID)
+	return s.sessionMgr.CreateToken(sessionID, auth.TokenUserInfo{})
 }
 
 // --- Mocks ---

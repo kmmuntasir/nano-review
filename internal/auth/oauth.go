@@ -169,7 +169,11 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 			return
 		}
 
-		sessionToken := cfg.SessionManager.CreateToken(info.ID)
+		sessionToken := cfg.SessionManager.CreateToken(info.ID, TokenUserInfo{
+			Email:   info.Email,
+			Name:    info.Name,
+			Picture: info.Picture,
+		})
 		cfg.SessionManager.SetCookie(w, sessionToken)
 		cfg.SessionManager.SetTokenCookie(w, sessionToken)
 
@@ -203,8 +207,11 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]string{
-			"id":     user.ID,
-			"source": user.Source,
+			"id":      user.ID,
+			"email":   user.Email,
+			"name":    user.Name,
+			"picture": user.PictureURL,
+			"source":  user.Source,
 		})
 	}
 }

@@ -147,7 +147,7 @@ func dialWithCookie(t *testing.T, serverURL, path string, cookie *http.Cookie) (
 
 func TestHandleWebSocket_RequireAuthValidToken(t *testing.T) {
 	sm := newSessionManager(t)
-	token := sm.CreateToken("session-user-789")
+	token := sm.CreateToken("session-user-789", auth.TokenUserInfo{})
 
 	hub := NewHub()
 
