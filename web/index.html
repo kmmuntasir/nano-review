@@ -2503,29 +2503,6 @@
             });
         };
 
-        // --- Review table ---
-        function reviewTable(reviews) {
-            if (!reviews || !reviews.length) {
-                return '<div class="empty">No reviews</div>';
-            }
-            var html = '<table><thead><tr>' +
-                '<th>Run ID</th><th>Repo</th><th>PR #</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
-                '</tr></thead><tbody>';
-            reviews.forEach(function(r) {
-                html += '<tr>' +
-                    '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
-                    '<td>' + esc(basename(r.repo)) + '</td>' +
-                    '<td>' + (r.pr_number || '-') + '</td>' +
-                    '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
-                    '<td>' + formatDuration(r.duration_ms) + '</td>' +
-                    '<td>' + formatDate(r.created_at) + '</td>' +
-                    '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
-                    '</tr>';
-            });
-            html += '</tbody></table>';
-            return html;
-        }
-
         // --- Review detail view ---
         function renderReviewDetail(runId) {
             app.innerHTML = '<div class="loading">Loading review</div>';
