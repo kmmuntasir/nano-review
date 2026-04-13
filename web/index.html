@@ -2056,6 +2056,71 @@
             });
         }
 
+        function setupDashboardWebSocketHandlers() {
+            // Clean up any existing handler
+            if (dashboardState.onReviewUpdate) {
+                ws.off("review_update", dashboardState.onReviewUpdate);
+            }
+            if (dashboardState.onMetricsUpdate) {
+                ws.off("metrics_update", dashboardState.onMetricsUpdate);
+            }
+
+            // Handle review status updates and new reviews
+            dashboardState.onReviewUpdate = function(msg) {
+                var runId = msg.run_id;
+                var status = msg.status;
+
+                // Check if review already exists in our list
+                var existingIdx = -1;
+                for (var i = 0; i < dashboardState.reviews.length; i++) {
+                    if (dashboardState.reviews[i].run_id === runId) {
+                        existingIdx = i;
+                        break;
+                    }
+                }
+
+                if (existingIdx >= 0) {
+                    // Update existing review in place
+                    dashboardState.reviews[existingIdx].status = status;
+                    if (msg.duration_ms !== undefined) {
+                        dashboardState.reviews[existingIdx].duration_ms = msg.duration_ms;
+                    }
+                    // Re-render the reviews table
+                    updateReviewsTable();
+                } else {
+                    // New review - fetch full details and add to list
+                    api.getReview(runId).then(function(r) {
+                        if (r) {
+                            dashboardState.reviews.unshift(r); // Add at beginning
+                            // Keep only the 10 most recent
+                            if (dashboardState.reviews.length > 10) {
+                                dashboardState.reviews = dashboardState.reviews.slice(0, 10);
+                            }
+                            updateReviewsTable();
+                        }
+                    }).catch(function() {
+                        // Fetch failed, still add with available data
+                        dashboardState.reviews.unshift({
+                            run_id: runId,
+                            status: status,
+                            created_at: new Date().toISOString()
+                        });
+                        if (dashboardState.reviews.length > 10) {
+                            dashboardState.reviews = dashboardState.reviews.slice(0, 10);
+                        }
+                        updateReviewsTable();
+                    });
+                }
+
+                // Update metrics when review reaches terminal state
+                if (["completed", "failed", "timed_out", "cancelled"].indexOf(status) !== -1) {
+                    refreshMetrics();
+                }
+            };
+
+            ws.on("review_update", dashboardState.onReviewUpdate);
+        }
+
         function statCard(label, value) {
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
