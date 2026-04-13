@@ -1991,6 +1991,9 @@
                 var m = results[0];
                 var r = results[1];
                 renderDashboardContent(m, r.reviews || []);
+
+                // Register WebSocket handler for dashboard updates
+                setupDashboardWebSocketHandlers();
             }).catch(function() {
                 app.innerHTML = '<div class="empty">Failed to load dashboard data</div>';
             });
