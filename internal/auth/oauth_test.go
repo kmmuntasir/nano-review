@@ -1007,7 +1007,61 @@ func TestHandleSessionInfoPublic(t *testing.T) {
 	})
 }
 
-func TestHandleLogout(t *testing.T) {
+func TestHandleLogoutClearsSessionCookie(t *testing.T) {
+	sm := newTestSessionManager(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+
+	HandleLogout(sm)(w, req)
+
+	cookies := w.Result().Cookies()
+	var sessionCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == cookieName {
+			sessionCookie = c
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected nano_session cookie to be set in response")
+	}
+	if sessionCookie.MaxAge != -1 {
+		t.Errorf("expected MaxAge=-1 for nano_session cookie, got %d", sessionCookie.MaxAge)
+	}
+	if sessionCookie.Value != "" {
+		t.Errorf("expected empty value for nano_session cookie, got %q", sessionCookie.Value)
+	}
+}
+
+func TestHandleLogoutClearsSessionTokenCookie(t *testing.T) {
+	sm := newTestSessionManager(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+
+	HandleLogout(sm)(w, req)
+
+	cookies := w.Result().Cookies()
+	var tokenCookie *http.Cookie
+	for _, c := range cookies {
+		if c.Name == tokenCookieName {
+			tokenCookie = c
+			break
+		}
+	}
+	if tokenCookie == nil {
+		t.Fatal("expected nano_session_token cookie to be set in response")
+	}
+	if tokenCookie.MaxAge != -1 {
+		t.Errorf("expected MaxAge=-1 for nano_session_token cookie, got %d", tokenCookie.MaxAge)
+	}
+	if tokenCookie.Value != "" {
+		t.Errorf("expected empty value for nano_session_token cookie, got %q", tokenCookie.Value)
+	}
+}
+
+func TestHandleLogoutRedirectsToRoot(t *testing.T) {
 	sm := newTestSessionManager(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
@@ -1018,31 +1072,53 @@ func TestHandleLogout(t *testing.T) {
 	if w.Code != http.StatusFound {
 		t.Errorf("expected status 302, got %d", w.Code)
 	}
-
 	loc := w.Header().Get("Location")
 	if loc != "/" {
 		t.Errorf("expected redirect to %q, got %q", "/", loc)
 	}
+}
 
-	// Verify both cookies are cleared.
+func TestHandleLogoutCookieAttributes(t *testing.T) {
+	sm := newTestSessionManager(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+
+	HandleLogout(sm)(w, req)
+
 	cookies := w.Result().Cookies()
-	found := make(map[string]bool)
 	for _, c := range cookies {
-		if c.Name == cookieName || c.Name == tokenCookieName {
-			if c.MaxAge != -1 {
-				t.Errorf("cookie %q: expected MaxAge=-1, got %d", c.Name, c.MaxAge)
-			}
-			if c.Value != "" {
-				t.Errorf("cookie %q: expected empty value, got %q", c.Name, c.Value)
-			}
-			found[c.Name] = true
+		if c.Name != cookieName && c.Name != tokenCookieName {
+			continue
+		}
+		if c.Secure != sm.Secure() {
+			t.Errorf("cookie %q: expected Secure=%v (from SessionManager), got %v", c.Name, sm.Secure(), c.Secure)
+		}
+		if c.SameSite != http.SameSiteLaxMode {
+			t.Errorf("cookie %q: expected SameSite=Lax, got %v", c.Name, c.SameSite)
 		}
 	}
-	if !found[cookieName] {
-		t.Error("expected nano_session cookie to be cleared")
-	}
-	if !found[tokenCookieName] {
-		t.Error("expected nano_session_token cookie to be cleared")
+}
+
+func TestHandleLogoutCookiePathsMatch(t *testing.T) {
+	sm := newTestSessionManager(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/logout", nil)
+	w := httptest.NewRecorder()
+
+	HandleLogout(sm)(w, req)
+
+	cookies := w.Result().Cookies()
+	for _, c := range cookies {
+		if c.Name != cookieName && c.Name != tokenCookieName {
+			continue
+		}
+		if c.Path != "/" {
+			t.Errorf("cookie %q: expected Path=%q, got %q", c.Name, "/", c.Path)
+		}
+		if c.Domain != sm.cookieDomain() {
+			t.Errorf("cookie %q: expected Domain=%q, got %q", c.Name, sm.cookieDomain(), c.Domain)
+		}
 	}
 }
 
