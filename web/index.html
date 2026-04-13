@@ -582,6 +582,7 @@
 
         import StreamRenderer from "./js/stream-renderer.js";
         import { renderReviewsPage, cleanupReviewsPageHandlers } from "./js/views/reviews.js";
+        import { renderReviewDetail } from "./js/views/detail.js";
 
 
         // =========================================================
@@ -897,154 +898,172 @@
             return '<div class="stat-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
         }
 
-        // --- Review detail view ---
-        function renderReviewDetail(runId) {
-            app.innerHTML = '<div class="loading">Loading review</div>';
-            ws.unsubscribe("all");
+        // --- Review list view ---
+        var reviewsPageState = {
+            status: "",
+            repo: "",
+            offset: 0,
+            reviews: [],
+            loading: false,
+            onReviewUpdate: null
+        };
 
-            api.getReview(runId).then(function(r) {
-                if (!r) {
-                    app.innerHTML = '<div class="empty">Review not found</div>';
-                    return;
-                }
-                if (r.status === "pending" || r.status === "running") {
-                    renderStreamingView(runId, r);
-                } else {
-                    renderDetailContent(r, r.claude_output || null);
-                }
-            }).catch(function() {
-                app.innerHTML = '<div class="empty">Failed to load review</div>';
+        function renderReviewsPage() {
+            reviewsPageState.offset = 0;
+            reviewsPageState.reviews = [];
+            reviewsPageState.loading = true;
+            ws.subscribe("all");
+
+            app.innerHTML = '<div class="loading">Loading reviews</div>';
+
+            fetchReviewsForPage(function() {
+                renderReviewsPageContent();
+                setupReviewsPageWebSocketHandlers();
             });
         }
 
-        function renderStreamingView(runId, review) {
-            var html = '<div class="detail-header">' +
-                '<button class="btn" onclick="location.hash=\'#/reviews\'">&#8592; Back</button>' +
-                '<h1>' + esc(truncate(review.run_id, 12)) + '</h1>' +
-                '<span class="' + badgeClass(review.status) + '" id="detail-status">' + esc(review.status) + '</span>' +
-                '</div>';
+        function fetchReviewsForPage(callback) {
+            reviewsPageState.loading = true;
+            var params = { limit: 20, offset: reviewsPageState.offset };
+            if (reviewsPageState.status) params.status = reviewsPageState.status;
+            if (reviewsPageState.repo) params.repo = reviewsPageState.repo;
 
-            html += '<div class="meta-grid" id="detail-meta">' +
-                metaCard("Repo", basename(review.repo)) +
-                metaCard("PR Number", "#" + (review.pr_number || "-")) +
-                metaCard("Status", review.status) +
-                metaCard("Base Branch", review.base_branch || "-") +
-                metaCard("Head Branch", review.head_branch || "-") +
-                metaCard("Created", formatDate(review.created_at)) +
-                '</div>';
+            api.listReviews(params).then(function(data) {
+                reviewsPageState.loading = false;
+                reviewsPageState.reviews = reviewsPageState.reviews.concat(data.reviews || []);
+                reviewsPageState.offset += data.reviews ? data.reviews.length : 0;
+                if (callback) callback();
+            }).catch(function() {
+                reviewsPageState.loading = false;
+                if (callback) callback();
+            });
+        }
 
-            html += '<div class="output-section">' +
-                '<div class="output-header">' +
-                '<span><span class="streaming-indicator" id="live-indicator"></span>Claude Output (live)</span>' +
-                '</div>' +
-                '<div class="output-body" id="stream-output" style="max-height:600px;overflow:auto">' +
-                '<div class="stream-content" id="stream-content">Waiting for output...</div>' +
-                '<button class="scroll-bottom-btn" id="scroll-bottom" onclick="document.getElementById(\'stream-output\').scrollTop=999999">&#8595;</button>' +
+        function renderReviewsPageContent() {
+            var html = '<div class="table-wrap">' +
+                '<div class="table-header">' +
+                '<h2>Reviews</h2>' +
+                '<div class="filters">' +
+                '<select id="status-filter" onchange="window.__applyFilter()">' +
+                '<option value="">All statuses</option>' +
+                '<option value="pending"' + (reviewsPageState.status === "pending" ? " selected" : "") + '>Pending</option>' +
+                '<option value="running"' + (reviewsPageState.status === "running" ? " selected" : "") + '>Running</option>' +
+                '<option value="completed"' + (reviewsPageState.status === "completed" ? " selected" : "") + '>Completed</option>' +
+                '<option value="failed"' + (reviewsPageState.status === "failed" ? " selected" : "") + '>Failed</option>' +
+                '<option value="timed_out"' + (reviewsPageState.status === "timed_out" ? " selected" : "") + '>Timed out</option>' +
+                '<option value="cancelled"' + (reviewsPageState.status === "cancelled" ? " selected" : "") + '>Cancelled</option>' +
+                '</select>' +
+                '<input type="text" id="repo-filter" placeholder="Filter by repo..." value="' + esc(reviewsPageState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
+                '<button class="btn" onclick="window.__applyFilter()">Filter</button>' +
                 '</div></div>';
 
-            app.innerHTML = html;
-
-            var container = document.getElementById("stream-output");
-            var contentEl = document.getElementById("stream-content");
-            var renderer = new StreamRenderer(container, contentEl);
-
-            ws.subscribe("run:" + runId);
-
-            var onStream = function(msg) {
-                if (contentEl.textContent === "Waiting for output...") {
-                    contentEl.textContent = "";
-                }
-                if (msg.data) renderer.appendData(msg.data);
-            };
-            var onDone = function() {
-                ws.off("stream", onStream);
-                ws.off("stream_done", onDone);
-                ws.off("review_update", onUpdate);
-                ws.unsubscribe("run:" + runId);
-                var indicator = document.getElementById("live-indicator");
-                if (indicator) indicator.style.display = "none";
-                renderer.flushPending();
-                api.getReview(runId).then(function(r) {
-                    if (r) {
-                        var badge = document.getElementById("detail-status");
-                        if (badge) {
-                            badge.className = badgeClass(r.status);
-                            badge.textContent = r.status;
-                        }
-                    }
-                }).catch(function() {});
-            };
-            var onUpdate = function(msg) {
-                if (msg.run_id !== runId) return;
-                var badge = document.getElementById("detail-status");
-                if (badge && msg.status) {
-                    badge.className = badgeClass(msg.status);
-                    badge.textContent = msg.status;
-                }
-            };
-
-            ws.on("stream", onStream);
-            ws.on("stream_done", onDone);
-            ws.on("review_update", onUpdate);
-        }
-
-        function renderDetailContent(r, streamOutput) {
-            var html = '<div class="detail-header">' +
-                '<button class="btn" onclick="location.hash=\'#/reviews\'">&#8592; Back</button>' +
-                '<h1>' + esc(truncate(r.run_id, 12)) + '</h1>' +
-                '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
-                '</div>';
-
-            html += '<div class="meta-grid">' +
-                metaCard("Repo", basename(r.repo)) +
-                metaCard("PR Number", "#" + (r.pr_number || "-")) +
-                metaCard("Status", r.status) +
-                metaCard("Conclusion", r.conclusion || "-") +
-                metaCard("Base Branch", r.base_branch || "-") +
-                metaCard("Head Branch", r.head_branch || "-") +
-                metaCard("Duration", formatDuration(r.duration_ms)) +
-                metaCard("Attempts", String(r.attempts || 0)) +
-                metaCard("Created", formatDate(r.created_at)) +
-                metaCard("Completed", formatDate(r.completed_at)) +
-                '</div>';
-
-            // Check if we have structured stream data for rich rendering
-            var isStructured = streamOutput && streamOutput.indexOf('{"type":"') !== -1;
-
-            html += '<div class="output-section">' +
-                '<div class="output-header">' +
-                '<span>Claude Output</span>' +
-                '<button class="btn" onclick="this.closest(\'.output-section\').querySelector(\'.output-body\').classList.toggle(\'collapsed\');this.textContent=this.textContent===\'Expand\'?\'Collapse\':\'Expand\'">' +
-                (streamOutput && streamOutput.length > 2000 ? "Expand" : "Collapse") +
-                '</button>' +
-                '</div>' +
-                '<div class="output-body' + (streamOutput && streamOutput.length > 2000 ? ' collapsed' : '') + '">';
-
-            if (isStructured) {
-                html += '<div class="stream-content" id="stream-content"></div>';
+            if (reviewsPageState.loading && reviewsPageState.reviews.length === 0) {
+                html += '<div class="loading">Loading</div>';
+            } else if (reviewsPageState.reviews.length === 0) {
+                html += '<div class="empty">No reviews found</div>';
             } else {
-                html += '<pre>' + esc(r.claude_output || "No output available") + '</pre>';
+                html += '<table><thead><tr>' +
+                    '<th>Run ID</th><th>Repo</th><th>PR #</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
+                    '</tr></thead><tbody id="reviews-table-body">';
+                reviewsPageState.reviews.forEach(function(r) {
+                    html += reviewRow(r);
+                });
+                html += '</tbody></table>';
+                html += '<div class="load-more-wrap"><button class="btn" onclick="window.__loadMore()">Load more</button></div>';
             }
 
-            html += '</div></div>';
-
+            html += '</div>';
             app.innerHTML = html;
+        }
 
-            // Render structured stream data
-            if (isStructured) {
-                var container = document.querySelector("#stream-content");
-                if (!container) return;
-                var outputBody = container.closest(".output-body");
-                var renderer = new StreamRenderer(outputBody || container, container);
-                renderer.maxRenderedBlocks = 99999; // Show all for completed reviews
-                renderer.appendData(streamOutput);
-                renderer.flushPending();
+        function reviewRow(r) {
+            return '<tr>' +
+                '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
+                '<td>' + esc(basename(r.repo)) + '</td>' +
+                '<td>' + (r.pr_number || '-') + '</td>' +
+                '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
+                '<td>' + formatDuration(r.duration_ms) + '</td>' +
+                '<td>' + formatDate(r.created_at) + '</td>' +
+                '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
+                '</tr>';
+        }
+
+        function updateReviewsPageTable() {
+            var tbody = document.getElementById("reviews-table-body");
+            if (!tbody) return;
+            var html = "";
+            for (var i = 0; i < reviewsPageState.reviews.length; i++) {
+                html += reviewRow(reviewsPageState.reviews[i]);
             }
+            tbody.innerHTML = html;
         }
 
-        function metaCard(label, value) {
-            return '<div class="meta-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
+        function setupReviewsPageWebSocketHandlers() {
+            if (reviewsPageState.onReviewUpdate) {
+                ws.off("review_update", reviewsPageState.onReviewUpdate);
+            }
+
+            reviewsPageState.onReviewUpdate = function(msg) {
+                var reviewData = msg.review;
+                if (!reviewData) return;
+
+                var runId = reviewData.run_id;
+                var statusFilter = reviewsPageState.status;
+                var repoFilter = reviewsPageState.repo;
+
+                // Check if review matches active filters
+                if (statusFilter && reviewData.status !== statusFilter) {
+                    // Review doesn't match status filter — remove if it was in the list
+                    var idx = -1;
+                    for (var i = 0; i < reviewsPageState.reviews.length; i++) {
+                        if (reviewsPageState.reviews[i].run_id === runId) { idx = i; break; }
+                    }
+                    if (idx >= 0) {
+                        reviewsPageState.reviews.splice(idx, 1);
+                        updateReviewsPageTable();
+                    }
+                    return;
+                }
+                if (repoFilter && basename(reviewData.repo).toLowerCase().indexOf(repoFilter.toLowerCase()) === -1) {
+                    return; // Doesn't match repo filter — ignore entirely
+                }
+
+                // Update existing or prepend new
+                var existingIdx = -1;
+                for (var i = 0; i < reviewsPageState.reviews.length; i++) {
+                    if (reviewsPageState.reviews[i].run_id === runId) { existingIdx = i; break; }
+                }
+
+                if (existingIdx >= 0) {
+                    Object.assign(reviewsPageState.reviews[existingIdx], reviewData);
+                } else {
+                    reviewsPageState.reviews.unshift(reviewData);
+                }
+                updateReviewsPageTable();
+            };
+
+            ws.on("review_update", reviewsPageState.onReviewUpdate);
         }
+
+        window.__applyFilter = function() {
+            var s = document.getElementById("status-filter");
+            var r = document.getElementById("repo-filter");
+            reviewsPageState.status = s ? s.value : "";
+            reviewsPageState.repo = r ? r.value : "";
+            reviewsPageState.offset = 0;
+            reviewsPageState.reviews = [];
+            reviewsPageState.loading = true;
+            renderReviewsPageContent();
+            fetchReviewsForPage(function() {
+                renderReviewsPageContent();
+            });
+        };
+
+        window.__loadMore = function() {
+            fetchReviewsForPage(function() {
+                renderReviewsPageContent();
+            });
+        };
 
         // --- Init ---
         Auth.init().then(function() {
