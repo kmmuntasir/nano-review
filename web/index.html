@@ -1949,8 +1949,21 @@
         // =========================================================
         function route() {
             if (!Auth.checked() || !Auth.authenticated()) return;
-            ws.unsubscribe("all");
+
+            // Unsubscribe from "all" when leaving dashboard
             var hash = location.hash || "#/dashboard";
+            if (hash.indexOf("#/dashboard") === -1) {
+                ws.unsubscribe("all");
+                if (dashboardState.onReviewUpdate) {
+                    ws.off("review_update", dashboardState.onReviewUpdate);
+                    dashboardState.onReviewUpdate = null;
+                }
+                if (dashboardState.onMetricsUpdate) {
+                    ws.off("metrics_update", dashboardState.onMetricsUpdate);
+                    dashboardState.onMetricsUpdate = null;
+                }
+            }
+
             updateNav(hash);
 
             if (hash === "#/" || hash === "" || hash === "#/dashboard") {
