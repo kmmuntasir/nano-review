@@ -1055,14 +1055,20 @@
         var Auth = {
             _user: null,
             _checked: false,
+            _authEnabled: true,
             _listeners: [],
 
             fetchSession: function() {
                 return fetch("/auth/me").then(function(r) {
                     if (r.ok) return r.json();
                     return null;
-                }).then(function(user) {
-                    Auth._user = user;
+                }).then(function(data) {
+                    if (data && data.auth_enabled === false) {
+                        Auth._authEnabled = false;
+                        Auth._user = null;
+                    } else {
+                        Auth._user = data;
+                    }
                     Auth._checked = true;
                     Auth._notify();
                 }).catch(function() {
@@ -1083,6 +1089,7 @@
             user: function() { return Auth._user; },
             checked: function() { return Auth._checked; },
             authenticated: function() { return !!Auth._user; },
+            authEnabled: function() { return Auth._authEnabled; },
 
             onChange: function(fn) { Auth._listeners.push(fn); },
             offChange: function(fn) { Auth._listeners = Auth._listeners.filter(function(f) { return f !== fn; }); },
@@ -1102,6 +1109,10 @@
         var authNav = document.getElementById("auth-nav");
 
         function renderAuthNav(user) {
+            if (!Auth.authEnabled()) {
+                authNav.innerHTML = "";
+                return;
+            }
             if (!user) {
                 authNav.innerHTML =
                     '<a href="#" class="btn-google-login" id="google-login-btn">' +
@@ -2242,6 +2253,10 @@
 
         // --- Init ---
         Auth.init().then(function() {
+            if (!Auth.authEnabled()) {
+                route();
+                return;
+            }
             if (!Auth.authenticated()) {
                 app.innerHTML =
                     '<div class="empty">' +

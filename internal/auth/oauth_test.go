@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -418,4 +419,141 @@ func TestOAuthStateCSRF(t *testing.T) {
 		}
 		t.Error("expected nano_oauth_state cookie to be cleared")
 	})
+}
+
+func newTestSessionManager(t *testing.T) *SessionManager {
+	t.Helper()
+	return NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil)
+}
+
+func TestHandleSessionInfoPublic(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = true
+	handler := HandleSessionInfo(sm)
+
+	t.Run("returns empty object without cookie", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+		ct := w.Header().Get("Content-Type")
+		if ct != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", ct)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object, got %v", body)
+		}
+	})
+
+	t.Run("returns user info with valid cookie", func(t *testing.T) {
+		token := sm.CreateToken("user-123", TokenUserInfo{
+			Email:   "test@example.com",
+			Name:    "Test User",
+			Picture: "https://example.com/pic.jpg",
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: token})
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if body["id"] != "user-123" {
+			t.Errorf("expected id=user-123, got %s", body["id"])
+		}
+		if body["email"] != "test@example.com" {
+			t.Errorf("expected email=test@example.com, got %s", body["email"])
+		}
+		if body["name"] != "Test User" {
+			t.Errorf("expected name=Test User, got %s", body["name"])
+		}
+		if body["picture"] != "https://example.com/pic.jpg" {
+			t.Errorf("expected picture URL, got %s", body["picture"])
+		}
+	})
+
+	t.Run("returns empty object with invalid token", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+		req.AddCookie(&http.Cookie{Name: cookieName, Value: "invalid.token.value"})
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("expected status 200, got %d", w.Code)
+		}
+
+		var body map[string]interface{}
+		if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		if len(body) != 0 {
+			t.Errorf("expected empty object for invalid token, got %v", body)
+		}
+	})
+
+	t.Run("method not allowed for POST", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/auth/me", nil)
+		w := httptest.NewRecorder()
+
+		handler(w, req)
+
+		if w.Code != http.StatusMethodNotAllowed {
+			t.Errorf("expected status 405, got %d", w.Code)
+		}
+	})
+}
+
+func TestHandleSessionInfoWhenAuthDisabled(t *testing.T) {
+	sm := newTestSessionManager(t)
+	sm.authEnabled = false
+	handler := HandleSessionInfo(sm)
+
+	req := httptest.NewRequest(http.MethodGet, "/auth/me", nil)
+	w := httptest.NewRecorder()
+
+	handler(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+	ct := w.Header().Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var body map[string]interface{}
+	if err := json.NewDecoder(w.Body).Decode(&body); err != nil {
+		t.Fatal(err)
+	}
+	v, ok := body["auth_enabled"]
+	if !ok {
+		t.Fatal("expected auth_enabled field in response")
+	}
+	if v != false {
+		t.Errorf("expected auth_enabled=false, got %v", v)
+	}
+	// Should not contain user fields
+	for _, field := range []string{"id", "email", "name", "picture"} {
+		if _, exists := body[field]; exists {
+			t.Errorf("unexpected field %q in auth-disabled response", field)
+		}
+	}
 }

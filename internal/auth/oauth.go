@@ -260,8 +260,11 @@ func HandleLogout(sm *SessionManager) http.HandlerFunc {
 	}
 }
 
-// HandleSessionInfo returns the authenticated user's session info as JSON.
-// Requires a valid session cookie.
+// HandleSessionInfo returns session info as JSON.
+// This is a public endpoint that handles three cases:
+//   - Auth disabled: returns {"auth_enabled":false}
+//   - No valid token: returns {}
+//   - Valid token: returns {id, email, name, picture}
 func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -269,19 +272,36 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 			return
 		}
 
-		user := UserFromContext(r.Context())
-		if user.ID == "" {
-			http.Error(w, `{"error":"not authenticated"}`, http.StatusUnauthorized)
+		w.Header().Set("Content-Type", "application/json")
+
+		if !sm.AuthEnabled() {
+			json.NewEncoder(w).Encode(map[string]interface{}{"auth_enabled": false})
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		tokenValue := ""
+		if cookie, err := r.Cookie(cookieName); err == nil {
+			tokenValue = cookie.Value
+		}
+		if tokenValue == "" {
+			tokenValue = r.URL.Query().Get("token")
+		}
+		if tokenValue == "" {
+			json.NewEncoder(w).Encode(map[string]interface{}{})
+			return
+		}
+
+		session, err := sm.ValidateToken(tokenValue)
+		if err != nil {
+			json.NewEncoder(w).Encode(map[string]interface{}{})
+			return
+		}
+
 		json.NewEncoder(w).Encode(map[string]string{
-			"id":      user.ID,
-			"email":   user.Email,
-			"name":    user.Name,
-			"picture": user.PictureURL,
-			"source":  user.Source,
+			"id":      session.SessionID,
+			"email":   session.UserInfo.Email,
+			"name":    session.UserInfo.Name,
+			"picture": session.UserInfo.Picture,
 		})
 	}
 }

@@ -330,9 +330,9 @@ func main() {
 	mux.HandleFunc("GET /auth/callback", auth.HandleOAuthCallback(oauthCfg))
 	mux.HandleFunc("GET /auth/logout", auth.HandleLogout(sessionMgr))
 	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
+	mux.HandleFunc("GET /auth/me", auth.HandleSessionInfo(sessionMgr))
 
 	// Protected routes — RequireAuth middleware (no-op when AUTH_ENABLED=false).
-	mux.Handle("GET /auth/me", sessionMgr.RequireAuth(auth.HandleSessionInfo(sessionMgr)))
 	mux.Handle("GET /reviews", sessionMgr.RequireAuth(api.HandleListReviews(store)))
 	mux.Handle("GET /reviews/{run_id}", sessionMgr.RequireAuth(api.HandleGetReview(store)))
 	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub)))
