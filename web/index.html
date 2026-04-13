@@ -1945,6 +1945,28 @@
         };
 
         // =========================================================
+        // Cleanup helpers — detach page-specific WebSocket handlers
+        // =========================================================
+
+        function cleanupDashboardHandlers() {
+            if (dashboardState.onReviewUpdate) {
+                ws.off("review_update", dashboardState.onReviewUpdate);
+                dashboardState.onReviewUpdate = null;
+            }
+            if (dashboardState.onMetricsUpdate) {
+                ws.off("metrics_update", dashboardState.onMetricsUpdate);
+                dashboardState.onMetricsUpdate = null;
+            }
+        }
+
+        function cleanupReviewsPageHandlers() {
+            if (reviewsPageState.onReviewUpdate) {
+                ws.off("review_update", reviewsPageState.onReviewUpdate);
+                reviewsPageState.onReviewUpdate = null;
+            }
+        }
+
+        // =========================================================
         // Router
         // =========================================================
         function route() {
