@@ -84,7 +84,7 @@ List review records with optional filtering and pagination.
 
 ### Authentication
 
-None required.
+Conditional. Auth is **enabled by default**. Provide credentials via `nano_session` cookie or `?token=` query parameter. Returns `401` when enabled and credentials are missing or invalid. Disable by setting `AUTH_ENABLED=false` environment variable.
 
 ### Query Parameters
 
@@ -142,6 +142,7 @@ curl "http://localhost:8080/reviews?repo=https://github.com/owner/repo.git&statu
 
 | Status | Error | Description |
 |--------|-------|-------------|
+| 401 | `unauthorized` | Auth is enabled and credentials are missing or invalid. |
 | 500 | `internal server error` | A database or server error occurred. |
 
 ---
@@ -152,7 +153,7 @@ Retrieve a single review record by its run ID.
 
 ### Authentication
 
-None required.
+Conditional. Auth is **enabled by default**. Provide credentials via `nano_session` cookie or `?token=` query parameter. Returns `401` when enabled and credentials are missing or invalid. Disable by setting `AUTH_ENABLED=false` environment variable.
 
 ### Path Parameters
 
@@ -208,6 +209,7 @@ curl http://localhost:8080/reviews/550e8400-e29b-41d4-a716-446655440000
 
 | Status | Error | Description |
 |--------|-------|-------------|
+| 401 | `unauthorized` | Auth is enabled and credentials are missing or invalid. |
 | 400 | `run_id is required` | The `run_id` path parameter is missing. |
 | 404 | `review not found` | No review exists with the given `run_id`. |
 | 500 | `internal server error` | A database or server error occurred. |
@@ -220,7 +222,7 @@ Retrieve aggregate statistics about all reviews.
 
 ### Authentication
 
-None required.
+Conditional. Auth is **enabled by default**. Provide credentials via `nano_session` cookie or `?token=` query parameter. Returns `401` when enabled and credentials are missing or invalid. Disable by setting `AUTH_ENABLED=false` environment variable.
 
 ### Sample Request
 
@@ -260,6 +262,7 @@ curl http://localhost:8080/metrics
 
 | Status | Error | Description |
 |--------|-------|-------------|
+| 401 | `unauthorized` | Auth is enabled and credentials are missing or invalid. |
 | 500 | `internal server error` | A database or server error occurred. |
 
 ---
