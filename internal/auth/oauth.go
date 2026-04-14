@@ -98,7 +98,7 @@ func HandleGoogleLogin(cfg *OAuthConfig) http.HandlerFunc {
 			return
 		}
 
-		// TODO: Add rate limiting to prevent OAuth abuse.
+		// TODO(#2): Add rate limiting to prevent OAuth abuse.
 
 		// Generate CSRF token (32 random bytes, base64url-encoded).
 		csrfBytes := make([]byte, 32)
