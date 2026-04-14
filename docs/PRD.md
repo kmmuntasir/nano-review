@@ -19,11 +19,11 @@ Manual code reviews are a bottleneck. Existing automated tools (linters, static 
 ## 4. Non-Goals (Out of MVP Scope)
 
 - Multi-repository support (MVP targets a single pre-configured repository).
-- Authentication/authorization beyond webhook secret validation.
-- Review history persistence or dashboards.
+- ~~Authentication/authorization beyond webhook secret validation.~~ **Implemented:** Google OAuth2 with session tokens, `RequireAuth` middleware, email domain restriction. See `internal/auth/`.
+- ~~Review history persistence or dashboards.~~ **Implemented:** SQLite storage with WAL mode (`internal/storage/`), web dashboard with live WebSocket streaming (`web/`), review detail views, and aggregate metrics endpoint.
 - Configurable review rules or per-repository customization.
 - Notifications (Slack, email, etc.).
-- Rate limiting or queue management for concurrent reviews.
+- ~~Rate limiting or queue management for concurrent reviews.~~ **Partially implemented:** Transient failure retry with exponential backoff (configurable `MAX_RETRIES`), per-review timeout (`MAX_REVIEW_DURATION`). No global queue or concurrency limit yet.
 - Support for platforms other than GitHub.
 
 ## 5. Architecture
@@ -108,14 +108,18 @@ For each incoming review request:
 
 1. **Generate run ID** - Create a unique identifier (UUID).
 2. **Create temp directory** - `/tmp/<run-id>`.
-3. **Clone repository** - `git clone <repo_url> --branch <head_branch> /tmp/<run-id>`.
+3. **Clone repository** - `git clone <repo_url> --branch <head_branch> --single-branch /tmp/<run-id>/<repo-name>/`. The GitHub PAT is injected into the clone URL at runtime (never written to disk or logged).
 4. **Launch Claude Code** - Execute:
    ```bash
-   cd /tmp/<run-id> && claude -p "/pr-review <pr_number> --base <base_branch> --head <head_branch>" \
+   cd /tmp/<run-id> && claude -p "/pr-review Review pull request #<pr_number> in <owner>/<repo> (base: <base_branch>, head: <head_branch>). The repo is cloned at ./<repo-name>/" \
      --dangerously-skip-permissions \
-     --output-format json \
-     --max-turns 30
+     --output-format stream-json \
+     --verbose \
+     --include-partial-messages \
+     --mcp-config /app/mcp-config.json \
+     --strict-mcp-config
    ```
+   Timeout is enforced via `MAX_REVIEW_DURATION` (default 600s) using Go's `context.WithTimeout`. No `--max-turns` flag is used.
 5. **Capture output** - Log stdout/stderr for debugging. The exit code determines success/failure.
 6. **Force cleanup** - `rm -rf /tmp/<run-id>` regardless of success or failure.
 
@@ -125,54 +129,30 @@ The worker runs as a goroutine. No concurrency limit in MVP (one goroutine per r
 
 ### `.claude/skills/pr-review/SKILL.md`
 
-The `/pr-review` skill that defines how the agent reviews a PR:
+The `/pr-review` skill that defines how the agent reviews a PR. See [`config/.claude/skills/pr-review/SKILL.md`](../config/.claude/skills/pr-review/SKILL.md) for the full source.
 
-```markdown
----
-name: pr-review
-description: Review a GitHub pull request
-argument-hint: "<pr_number> --base <base_branch> --head <head_branch>"
----
+Key aspects of the skill:
 
-You are an expert code reviewer. Review pull request #$1 (base branch: $3, head branch: $5) using the GitHub MCP server tools.
-
-## Steps
-
-1. Use the GitHub MCP server to fetch the PR diff and details.
-2. Analyze the changes for:
-   - **Correctness**: Logic errors, off-by-one errors, unhandled edge cases.
-   - **Security**: Injection vulnerabilities, exposed secrets, insecure defaults.
-   - **Performance**: N+1 queries, unnecessary allocations, missing indices.
-   - **Maintainability**: Unclear naming, missing error handling, code duplication.
-3. For each issue found, add an inline comment to the pending review with the file path, line number, and a clear explanation of the issue and suggested fix.
-4. Submit the review:
-   - If issues were found: REQUEST_CHANGES with a summary of the key concerns.
-   - If no issues were found: COMMENT with a summary of what was reviewed and a positive note.
-5. If inline comments fail for any reason, post a single summary review comment as a fallback.
-
-## Rules
-- Be concise. Do not comment on style preferences or formatting that linters handle.
-- Only flag genuine issues. Do not pad the review with trivial observations.
-- Include suggested code fixes in comments where practical.
-```
+- **Local-first analysis**: Uses `git diff` and filesystem tools (`Read`, `Glob`, `Grep`) for all diff analysis. GitHub MCP is used only for an initial connectivity check and posting inline comments.
+- **Parallel subagent strategy**: For non-trivial diffs, the review can be split across up to 3 parallel subagents (via the `Agent` tool) — e.g., one for general diff analysis, one for Go-specific checks, one for test coverage assessment.
+- **Mandatory inline comments**: Each issue gets its own inline comment at the exact line. Summary comments are a fallback only.
+- **Project context**: Reads `CLAUDE.md`, `CONTRIBUTING.md`, linting configs, and docs from the cloned repo before analysis.
+- **Fallback mechanism**: If inline comment posting fails, falls back to a summary review comment via `mcp__github__add_issue_comment`.
 
 ### `.claude/settings.json`
 
-Configures the GitHub MCP server:
+Contains only telemetry disable flags — no MCP server configuration:
 
 ```json
 {
-  "mcpServers": {
-    "github": {
-      "type": "http",
-      "url": "https://api.githubcopilot.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${GITHUB_PAT}"
-      }
-    }
+  "env": {
+    "DISABLE_TELEMETRY": "1",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
   }
 }
 ```
+
+The GitHub MCP server is configured **dynamically at runtime** by `cmd/server/main.go` (`configureClaudeMCP` function), which writes `/app/mcp-config.json` and passes it to Claude Code via `--mcp-config /app/mcp-config.json --strict-mcp-config`. This prevents project-level `.mcp.json` files in cloned repos from overriding the GitHub MCP configuration.
 
 ## 9. GitHub Action Workflow (Not a part of this project, but a requirement)
 
@@ -208,26 +188,97 @@ jobs:
 
 ```
 nano-review/
-├── .claude                   # Claude settings used for this project
+├── .claude/                      # Claude settings used for this project (dev only)
+├── .github/workflows/
+│   ├── ci.yml                    # CI pipeline (build, test, lint)
+│   └── review.yml                # Nano Review self-review workflow
+├── .env.example
+├── .golangci.yml
+├── .gitignore
+├── CHANGELOG.md
+├── CLAUDE.md
+├── CODE_OF_CONDUCT.md
+├── CONTRIBUTING.md
 ├── Dockerfile
+├── LICENSE
+├── Makefile
+├── README.md
+├── SECURITY.md
 ├── docker-compose.yml
 ├── docker-compose.staging.yml
 ├── docker-compose.prod.yml
-├── .env.example
+├── go.mod
+├── go.sum
 ├── cmd/
 │   └── server/
-│       └── main.go
-├── internal/
-│   ├── api/
-│   │   └── handler.go
-│   └── reviewer/
-│       └── worker.go
+│       └── main.go               # Entry point — wire deps, start HTTP server
 ├── config/
-|   └── .claude               # Claude settings meant to be copied over during docker build
+│   └── .claude/                  # Claude settings copied into Docker image
 │       ├── skills/
 │       │   └── pr-review/
-|       |       └── SKILL.md
+│       │       └── SKILL.md
 │       └── settings.json
+├── internal/
+│   ├── api/                      # HTTP handlers, WebSocket hub, models
+│   │   ├── errors.go
+│   │   ├── handler.go
+│   │   ├── handler_test.go
+│   │   ├── hub.go
+│   │   ├── hub_test.go
+│   │   ├── models.go
+│   │   ├── models_test.go
+│   │   ├── ws_handler.go
+│   │   └── ws_handler_test.go
+│   ├── auth/                     # Google OAuth2, session management, middleware
+│   │   ├── auth.go
+│   │   ├── auth_test.go
+│   │   ├── context.go
+│   │   ├── context_test.go
+│   │   ├── oauth.go
+│   │   └── oauth_test.go
+│   ├── reviewer/                 # Review worker, streaming, broadcasting
+│   │   ├── broadcaster.go
+│   │   ├── logger.go
+│   │   ├── stream.go
+│   │   ├── stream_test.go
+│   │   ├── worker.go
+│   │   └── worker_test.go
+│   └── storage/                  # SQLite persistence with WAL mode
+│       ├── migrate.go
+│       ├── queries.go
+│       ├── session.go
+│       ├── session_sqlite.go
+│       ├── session_sqlite_test.go
+│       ├── sqlite.go
+│       ├── sqlite_test.go
+│       └── store.go
+├── tests/
+│   └── integration/              # Integration tests
+│       ├── logout_test.go
+│       ├── oauth_flow_test.go
+│       ├── protected_routes_test.go
+│       ├── testhelper.go
+│       └── websocket_auth_test.go
+├── web/                          # Embedded web dashboard (SPA)
+│   ├── embed.go
+│   ├── index.html
+│   ├── app.css
+│   ├── logo.jpg
+│   ├── logo-large.png
+│   └── js/
+│       ├── api.js
+│       ├── auth.js
+│       ├── main.js
+│       ├── markdown.js
+│       ├── router.js
+│       ├── stream-parser.js
+│       ├── stream-renderer.js
+│       ├── utils.js
+│       ├── views/
+│       │   ├── dashboard.js
+│       │   ├── detail.js
+│       │   └── reviews.js
+│       └── ws.js
 └── docs/
     ├── PRD.md
     └── roadmap.md
@@ -236,14 +287,19 @@ nano-review/
 ### Dockerfile
 
 ```dockerfile
+# Stage 1: Builder
 FROM golang:1.23-bookworm AS builder
 
 WORKDIR /app
+
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
-RUN CGO_ENABLED=0 go build -o /nano-review ./cmd/server
 
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux go build -o /nano-review ./cmd/server
+
+# Stage 2: Runtime
 FROM ubuntu:24.04
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -252,19 +308,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Claude Code CLI
-RUN curl -fsSL https://claude.ai/install.sh | sh
+# Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
+RUN useradd -m -s /bin/bash appuser
 
-# Copy binary
-COPY --from=builder /nano-review /usr/local/bin/nano-review
+# Install Claude Code CLI as appuser
+USER appuser
+RUN curl -fsSL https://claude.ai/install.sh | bash
+
+# Copy binary from builder
+COPY --from=builder --chown=appuser:appuser /nano-review /usr/local/bin/nano-review
 
 # Copy Claude Code configuration
-COPY config/.claude/ /root/.claude/
+COPY --chown=appuser:appuser config/.claude/ /home/appuser/.claude/
+
+# Create log and data directories (needs root to create /app)
+USER root
+RUN mkdir -p /app/logs/reviews && \
+    mkdir -p /app/data && \
+    chown -R appuser:appuser /app
 
 WORKDIR /app
+
+USER appuser
+
 EXPOSE 8080
 
-CMD ["nano-review"]
+ENTRYPOINT ["/usr/local/bin/nano-review"]
 ```
 
 ### Environment Variables
