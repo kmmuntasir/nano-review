@@ -60,6 +60,7 @@ This applies both the base config and the staging overlay:
 | Memory reservation | 512 MB |
 | Port | `${PORT:-8080}` mapped to container 8080 |
 | Log volume | `review-logs` at `/app/logs` |
+| Data volume | `review-data` at `/app/data` |
 
 ### 4. Verify
 
