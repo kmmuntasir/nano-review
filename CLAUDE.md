@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Current State
 
-Greenfield — documentation and development rules are in place, but no Go source code exists yet. Implementation should follow the architecture defined in `docs/PRD.md`.
+Implementation complete. The codebase includes 34 Go source files, a web dashboard with WebSocket streaming, Google OAuth authentication, SQLite storage with WAL mode, and integration tests. Documentation in `docs/PRD.md` may lag behind the implementation — when in doubt, the code is authoritative.
 
 ## Build & Development Commands
 
@@ -57,15 +57,53 @@ GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async
 
 - Subdirectory clone: repo is cloned into `/tmp/nano-review-<id>/<repo-name>/` with Claude CWD set to `/tmp/nano-review-<id>/` to prevent the target repo's `.claude/` config from being loaded as project config.
 
-### Planned Source Layout
+### Source Layout
 
 ```
-cmd/server/main.go          # Entry point — wire deps, start HTTP server
-internal/api/handler.go     # HTTP handlers — POST /review, GET /reviews, GET /metrics
-internal/storage/store.go   # ReviewStore interface and record types
-internal/storage/sqlite.go  # SQLite implementation with WAL mode
-internal/reviewer/worker.go # Clone, run Claude Code CLI, cleanup
-config/.claude/             # Claude config copied into Docker image
+cmd/server/main.go               # Entry point — wire deps, start HTTP server
+
+internal/api/
+  handler.go                      # HTTP handlers — POST /review, GET /reviews, GET /reviews/{run_id}, GET /metrics
+  ws_handler.go                   # WebSocket handler for live review streaming (GET /ws)
+  hub.go                          # WebSocket hub — manages client subscriptions and topic broadcasting
+  models.go                       # Request/response types, ReviewPayload, ReviewStarter interface
+  errors.go                       # Sentinel errors and error helpers
+
+internal/storage/
+  store.go                        # ReviewStore interface, ReviewRecord, ListFilter, Metrics types
+  sqlite.go                       # SQLite implementation with WAL mode
+  migrate.go                      # Schema migration logic
+  queries.go                      # SQL query constants
+  session.go                      # SessionStore interface for session persistence
+  session_sqlite.go               # SQLite implementation of SessionStore
+
+internal/reviewer/
+  worker.go                       # Review lifecycle: clone, run Claude Code CLI, cleanup, retry
+  logger.go                       # Structured file logger with lumberjack rotation
+  stream.go                       # Stream accumulator and file-based streaming for WebSocket relay
+  broadcaster.go                  # Broadcaster interface for decoupled WebSocket event push
+
+internal/auth/
+  auth.go                         # SessionManager — token creation/validation, cookie management, RequireAuth middleware
+  oauth.go                        # Google OAuth2 flow handlers (login, callback, logout, session info)
+  context.go                      # Context helpers for attaching/extracting User from request context
+
+web/                              # Embedded static assets for the web dashboard
+  embed.go                        # go:embed directive for static files
+  index.html                      # Single-page app shell
+  app.css                         # Styles
+  js/                             # Client-side JavaScript (router, views, WebSocket, stream parser, markdown)
+
+tests/integration/                # Integration tests (build tag: integration)
+  testhelper.go                   # Shared test setup utilities
+  logout_test.go                  # OAuth logout flow tests
+  oauth_flow_test.go              # End-to-end OAuth callback tests
+  protected_routes_test.go        # RequireAuth middleware tests
+  websocket_auth_test.go          # WebSocket authentication tests
+
+config/.claude/                   # Production Claude Code configuration copied into Docker image
+  skills/pr-review/SKILL.md       # The /pr-review skill for PR code review
+  settings.json                   # Telemetry env vars (MCP configured dynamically at runtime)
 ```
 
 ### Key Interfaces
@@ -75,20 +113,40 @@ config/.claude/             # Claude config copied into Docker image
 - `ReviewStore` — persists review records and provides query access
 - `ClaudeRunner` — abstracts `os/exec` calls for testability
 - `Logger` — structured logging interface wrapping `log/slog`
+- `Broadcaster` — decoupled event push to WebSocket subscribers, implemented by `api.Hub` (see `internal/reviewer/broadcaster.go`)
+- `SessionManager` — session token lifecycle (create/validate/cookies), OAuth middleware (`RequireAuth`), defined in `internal/auth/auth.go`
+- `SessionStore` — server-side session persistence interface, implemented by `internal/storage/session_sqlite.go`
 
 ### Endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/review` | Webhook secret | Start async review. Returns `{"status": "accepted", "run_id": "<uuid>"}` |
-| GET | `/reviews` | None | List reviews. Query params: `repo`, `status`, `limit`, `offset` |
-| GET | `/reviews/{run_id}` | None | Get single review detail with full output |
-| GET | `/metrics` | None | Aggregate stats: success rate, avg duration, reviews today |
+| GET | `/reviews` | Session (if enabled) | List reviews. Query params: `repo`, `status`, `limit`, `offset` |
+| GET | `/reviews/{run_id}` | Session (if enabled) | Get single review detail with full output |
+| GET | `/metrics` | Session (if enabled) | Aggregate stats: success rate, avg duration, reviews today |
+| GET | `/ws` | Session (if enabled) | WebSocket endpoint for live review streaming. Subscribe to `run:<id>` or `all` topics |
+| GET | `/auth/login` | None | Redirect to Google OAuth consent screen |
+| GET | `/auth/callback` | None | Handle OAuth callback, create session, redirect to dashboard |
+| GET | `/auth/logout` | None | Clear session cookies, redirect to login |
+| GET | `/auth/me` | None | Return current session user info as JSON |
+| GET | `/` | None | Serve embedded web dashboard static files |
+
+Note: When `AUTH_ENABLED=false` (the default in development), all session-protected endpoints are accessible without authentication. The `RequireAuth` middleware becomes a no-op.
 
 ### Environment Variables
 
 Required: `WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`
-Optional: `PORT` (8080), `CLAUDE_CODE_PATH`, `MAX_TURNS` (30), `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DATABASE_PATH` (`/app/data/reviews.db`)
+
+Claude Code Configuration:
+`PORT` (8080), `CLAUDE_CODE_PATH` (auto-detected), `CLAUDE_MODEL`, `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `MAX_REVIEW_DURATION` (600s), `MAX_RETRIES` (2)
+
+Database: `DATABASE_PATH` (`/app/data/reviews.db`)
+
+Authentication & Sessions:
+`AUTH_ENABLED` (true), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` (falls back to WEBHOOK_SECRET), `GOOGLE_OAUTH_REDIRECT_URI`, `SESSION_MAX_AGE` (Go duration), `SESSION_MAX_AGE_HOURS` (24), `SECURE_COOKIES` (true), `AUTH_COOKIE_DOMAIN`, `ALLOWED_EMAIL_DOMAINS` (comma-separated), `SESSION_CLEANUP_INTERVAL` (1h)
+
+WebSocket: `WS_ALLOWED_ORIGINS` (comma-separated, supports `https://*.example.com` wildcards)
 
 ## Docker
 
@@ -121,4 +179,4 @@ For permanent team reference documentation (CI/CD guides, security docs, pipelin
 - `docs/roadmap.md` — Prioritized future features (check runs API, timeouts, retry, queue)
 - `.claude/rules/` — Development-only rules for AI agents coding on this project (Go style, testing, git workflow, persona). NOT used in Docker.
 - `config/.claude/skills/pr-review/SKILL.md` — The Claude Code skill that runs inside Docker to perform reviews. This file lives under `config/`, NOT under the project root `.claude/`.
-- `config/.claude/settings.json` — MCP server configuration (GitHub Copilot MCP) copied into Docker. Also lives under `config/`, NOT under the project root `.claude/`.
+- `config/.claude/settings.json` — Telemetry environment variables for Claude Code. The GitHub MCP server is configured dynamically at runtime in `cmd/server/main.go` (written to `/app/mcp-config.json` and passed via `--mcp-config --strict-mcp-config`). The settings.json file also lives under `config/`, NOT under the project root `.claude/`.
