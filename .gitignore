@@ -36,6 +36,15 @@ Thumbs.db
 # Application logs
 /app/logs/
 
+# Coverage reports
+coverage.html
+
+# SQLite database (runtime state)
+data/
+
+# Runtime MCP config (may contain tokens)
+/app/mcp-config.json
+
 # AI generated docs (keep README.md)
 docs/ai_generated/*
 !docs/ai_generated/README.md
