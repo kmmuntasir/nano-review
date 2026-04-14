@@ -84,6 +84,10 @@ The GitHub Action already has access to this: `${{ github.event.pull_request.hea
 
 **Solution:** Add a configurable review timeout. If the review exceeds `MAX_REVIEW_DURATION` (default: 5 minutes), terminate the Claude Code process and mark the check run as `timed_out`.
 
+### Status: Implemented
+
+Review timeout is fully implemented in `internal/reviewer/worker.go`. The worker creates a context with timeout via `context.WithTimeout` and enforces it during Claude Code execution. Configured via the `MAX_REVIEW_DURATION` environment variable with a default of 600 seconds (10 minutes) defined by `DefaultMaxReviewDuration`. On timeout, the review is marked as failed with an appropriate log entry.
+
 ### Scope
 
 - Configurable via `MAX_REVIEW_DURATION` environment variable (default: `300` seconds).
@@ -98,6 +102,10 @@ The GitHub Action already has access to this: `${{ github.event.pull_request.hea
 **Problem:** Claude Code CLI or the Anthropic API may fail with transient errors (rate limits, network blips). The MVP has no retry logic.
 
 **Solution:** Add exponential backoff retry for known transient failures.
+
+### Status: Implemented
+
+Retry logic with exponential backoff is fully implemented in `internal/reviewer/worker.go`. The worker retries failed reviews with `time.Duration(1<<uint(attempt)) * time.Second` backoff between attempts. Configured via the `MAX_RETRIES` environment variable with a default of 2 defined by `DefaultMaxRetries`. Only transient errors are retried; deterministic failures and timeouts skip retry.
 
 ### Scope
 
@@ -164,6 +172,10 @@ The GitHub Action already has access to this: `${{ github.event.pull_request.hea
 **Problem:** No visibility into past reviews. No way to track review quality or measure improvement over time.
 
 **Solution:** Persist review results and expose basic metrics.
+
+### Status: Implemented
+
+Review history and metrics are fully implemented. SQLite storage with WAL mode is implemented in `internal/storage/sqlite.go`, persisting review records with `run_id`, `repo`, `pr_number`, `status`, `conclusion`, `duration_ms`, `created_at`, and `claude_output`. Three read endpoints are implemented in `internal/api/handler.go`: `GET /reviews` (list with query params for `repo`, `status`, `limit`, `offset`), `GET /reviews/{run_id}` (single review detail), and `GET /metrics` (aggregate stats including success rate, average duration, and reviews today).
 
 ### Scope
 
