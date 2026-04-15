@@ -1,0 +1,57 @@
+# Version control
+.git/
+.gitignore
+.gitattributes
+
+# Claude dev config (NOT config/.claude which IS needed)
+.claude/
+
+# Environment files (secrets)
+.env
+.env.local
+.env.*
+
+# CI/CD (not needed in container)
+.github/
+
+# Documentation (redundant in image)
+docs/
+*.md
+!CLAUDE.md
+
+# Go tooling files
+.golangci.yml
+go.work
+go.work.sum
+
+# Test artifacts
+*.test
+*.out
+coverage.html
+coverage.out
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Project metadata (not needed at runtime)
+project-metadata.md
+Makefile
+LICENSE
+CHANGELOG.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+SECURITY.md
+
+# Linting configs
+.mcp.json
+
+# Vibe Kanban worktree artifacts
+.vibe/
