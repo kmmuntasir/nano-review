@@ -1,3 +1,5 @@
+<p align="center"><img src="web/logo-large.png" alt="Nano Review" width="120"/></p>
+
 <p align="center">
   <h1 align="center">Nano Review</h1>
   <p align="center">
@@ -93,9 +95,15 @@ The server starts on `http://localhost:8080`. See [Configuration](#configuration
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | POST | `/review` | Webhook secret | Start an async PR review. Returns `{"status": "accepted", "run_id": "<uuid>"}` |
-| GET | `/reviews` | None | List reviews with optional filters (`repo`, `status`, `limit`, `offset`) |
-| GET | `/reviews/{run_id}` | None | Get a single review record with full output |
-| GET | `/metrics` | None | Aggregate stats: success rate, avg duration, reviews today |
+| GET | `/reviews` | Session (if enabled) | List reviews with optional filters (`repo`, `status`, `limit`, `offset`) |
+| GET | `/reviews/{run_id}` | Session (if enabled) | Get a single review record with full output |
+| GET | `/metrics` | Session (if enabled) | Aggregate stats: success rate, avg duration, reviews today |
+| GET | `/ws` | Session (if enabled) | WebSocket endpoint for live review streaming |
+| GET | `/auth/login` | None | Redirect to Google OAuth consent screen |
+| GET | `/auth/callback` | None | Handle OAuth callback, create session, redirect to dashboard |
+| GET | `/auth/logout` | None | Clear session cookies, redirect to login |
+| GET | `/auth/me` | None | Return current session user info as JSON |
+| GET | `/` | None | Serve embedded web dashboard static files |
 
 Full API documentation: [docs/api-documentation.md](docs/api-documentation.md)
 
@@ -113,7 +121,7 @@ Key environment variables (see [`.env.example`](.env.example) for the full list)
 | `CLAUDE_MODEL` | No | `sonnet` | Claude model for reviews (`haiku`, `sonnet`, `opus`) |
 | `MAX_REVIEW_DURATION` | No | `600` | Maximum review duration in seconds |
 | `MAX_RETRIES` | No | `2` | Retry attempts for transient failures |
-| `AUTH_ENABLED` | No | `false` | Enable Google OAuth for the dashboard |
+| `AUTH_ENABLED` | No | `true` | Enable Google OAuth for the dashboard |
 | `DATABASE_PATH` | No | `/app/data/reviews.db` | SQLite database file path |
 
 ## Development

@@ -132,7 +132,7 @@ config/.claude/                   # Production Claude Code configuration copied 
 | GET | `/auth/me` | None | Return current session user info as JSON |
 | GET | `/` | None | Serve embedded web dashboard static files |
 
-Note: When `AUTH_ENABLED=false` (the default in development), all session-protected endpoints are accessible without authentication. The `RequireAuth` middleware becomes a no-op.
+Note: Set `AUTH_ENABLED=false` to disable authentication and make all session-protected endpoints accessible without a session. The `RequireAuth` middleware becomes a no-op. Auth is enabled by default.
 
 ### Environment Variables
 
