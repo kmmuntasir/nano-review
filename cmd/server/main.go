@@ -124,7 +124,9 @@ func (c *claudeCLI) RunStreaming(ctx context.Context, dir string, streamWriter i
 		if line == "" {
 			continue
 		}
-		streamWriter.Write([]byte(line + "\n"))
+		if _, err := streamWriter.Write([]byte(line + "\n")); err != nil {
+			slog.Error("stream write failed", "error", err)
+		}
 	}
 
 	// Drain stderr for diagnostics.
@@ -232,7 +234,9 @@ func main() {
 
 	maxReviewDuration := reviewer.DefaultMaxReviewDuration
 	if v := os.Getenv("MAX_REVIEW_DURATION"); v != "" {
-		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
+		var secs int
+		secs, err = strconv.Atoi(v)
+		if err == nil && secs > 0 {
 			maxReviewDuration = time.Duration(secs) * time.Second
 		} else {
 			slog.Error("invalid MAX_REVIEW_DURATION, using default", "value", v, "error", err)
@@ -243,7 +247,9 @@ func main() {
 
 	maxRetries := reviewer.DefaultMaxRetries
 	if v := os.Getenv("MAX_RETRIES"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
+		var n int
+		n, err = strconv.Atoi(v)
+		if err == nil {
 			if n < 0 {
 				n = 0
 			}

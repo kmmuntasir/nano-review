@@ -57,16 +57,14 @@ func (m *mockClaudeRunner) RunStreaming(_ context.Context, dir string, streamWri
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.calls = append(m.calls, mockCall{Dir: dir, Args: args})
-	var output string
 	if len(m.perCall) > 0 {
 		r := m.perCall[0]
 		m.perCall = m.perCall[1:]
-		output = r.output
 		return r.exitCode, r.err
 	}
-	output = m.output
+	output := m.output
 	if streamWriter != nil && output != "" {
-		streamWriter.Write([]byte(output))
+		_, _ = streamWriter.Write([]byte(output))
 	}
 	return m.exitCode, m.err
 }

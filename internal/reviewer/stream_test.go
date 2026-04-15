@@ -32,8 +32,9 @@ func TestStreamAccumulator_WritePersistsToFile(t *testing.T) {
 
 	data := `{"type":"message","content":"hello"}
 {"type":"result","content":"done"}`
-	if _, err := acc.Write([]byte(data)); err != nil {
-		t.Fatalf("Write failed: %v", err)
+	_, writeErr := acc.Write([]byte(data))
+	if writeErr != nil {
+		t.Fatalf("Write failed: %v", writeErr)
 	}
 
 	raw := acc.Text()
@@ -58,9 +59,9 @@ func TestStreamAccumulator_MultipleWrites(t *testing.T) {
 	}
 	defer acc.Close()
 
-	acc.Write([]byte(`{"type":"a"}`))
-	acc.Write([]byte("\n"))
-	acc.Write([]byte(`{"type":"b"}`))
+	_, _ = acc.Write([]byte(`{"type":"a"}`))
+	_, _ = acc.Write([]byte("\n"))
+	_, _ = acc.Write([]byte(`{"type":"b"}`))
 
 	raw := acc.Text()
 	want := "{\"type\":\"a\"}\n{\"type\":\"b\"}"

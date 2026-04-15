@@ -279,7 +279,7 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 
 		if !sm.AuthEnabled() {
-			json.NewEncoder(w).Encode(map[string]interface{}{"auth_enabled": false})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{"auth_enabled": false})
 			return
 		}
 
@@ -291,17 +291,17 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 			tokenValue = r.URL.Query().Get("token")
 		}
 		if tokenValue == "" {
-			json.NewEncoder(w).Encode(map[string]interface{}{})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
 			return
 		}
 
 		session, err := sm.ValidateToken(tokenValue)
 		if err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{})
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{})
 			return
 		}
 
-		json.NewEncoder(w).Encode(map[string]string{
+		_ = json.NewEncoder(w).Encode(map[string]string{
 			"id":      session.SessionID,
 			"email":   session.UserInfo.Email,
 			"name":    session.UserInfo.Name,

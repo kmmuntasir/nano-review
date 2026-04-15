@@ -568,7 +568,7 @@ func newMockRoundTripper() *mockRoundTripper {
 func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	m.RequestLog = append(m.RequestLog, req.URL.String())
 
-	body := io.NopCloser(strings.NewReader(""))
+	var body io.ReadCloser
 	status := http.StatusOK
 
 	switch {
@@ -591,12 +591,6 @@ func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		Body:       body,
 		Request:    req,
 	}, nil
-}
-
-// mockHTTPClient creates an *http.Client backed by a new mockRoundTripper.
-// Assign the returned client to cfg.HTTPClient before calling handlers.
-func mockHTTPClient() *http.Client {
-	return &http.Client{Transport: newMockRoundTripper()}
 }
 
 // mockHTTPClientWithConfig creates an *OAuthConfig with a mock HTTP client
@@ -1413,7 +1407,7 @@ func createExpiredToken(sm *SessionManager) string {
 	binary.BigEndian.PutUint64(ts, uint64(time.Now().Add(-48*time.Hour).UTC().Unix()))
 
 	randBytes := make([]byte, randomBytesLength)
-	rand.Read(randBytes)
+	_, _ = rand.Read(randBytes)
 
 	sig := sm.computeSignature(sessionID, ts, randBytes, userInfoJSON)
 

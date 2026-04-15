@@ -731,10 +731,7 @@ func TestParseAuthEnabled(t *testing.T) {
 // parseAuthEnabledValue is a test helper that tests the parseAuthEnabled logic
 // without reading from environment variables.
 func parseAuthEnabledValue(v string) bool {
-	if strings.EqualFold(v, "false") {
-		return false
-	}
-	return true
+	return !strings.EqualFold(v, "false")
 }
 
 // --- SESSION_SECRET validation via env var ---
@@ -1252,10 +1249,7 @@ func TestParseSecureCookies(t *testing.T) {
 // parseSecureCookiesValue is a test helper that tests the parseSecureCookies logic
 // without reading from environment variables.
 func parseSecureCookiesValue(v string) bool {
-	if strings.EqualFold(v, "false") {
-		return false
-	}
-	return true
+	return !strings.EqualFold(v, "false")
 }
 
 // --- SECURE_COOKIES env var integration ---

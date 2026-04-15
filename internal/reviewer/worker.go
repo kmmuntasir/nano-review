@@ -154,7 +154,8 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	repoDir := filepath.Join(dir, repo)
 
 	logger.Info("git clone started")
-	if err := w.cloneRepo(reviewCtx, p, repoDir); err != nil {
+	err = w.cloneRepo(reviewCtx, p, repoDir)
+	if err != nil {
 		logger.Error("git clone failed", "error", err)
 		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
 		return

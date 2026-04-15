@@ -153,9 +153,9 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	store.CreateReview(ctx, ReviewRecord{RunID: "r1", Repo: "owner/a.git", PRNumber: 1, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
-	store.CreateReview(ctx, ReviewRecord{RunID: "r2", Repo: "owner/b.git", PRNumber: 2, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
-	store.CreateReview(ctx, ReviewRecord{RunID: "r3", Repo: "owner/a.git", PRNumber: 3, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r1", Repo: "owner/a.git", PRNumber: 1, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r2", Repo: "owner/b.git", PRNumber: 2, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r3", Repo: "owner/a.git", PRNumber: 3, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
 
 	records, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git"})
 	if err != nil {
@@ -171,10 +171,10 @@ func TestListReviews_FilterByStatus(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	store.CreateReview(ctx, ReviewRecord{RunID: "s1", Repo: "a", PRNumber: 1, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.CreateReview(ctx, ReviewRecord{RunID: "s2", Repo: "a", PRNumber: 2, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.UpdateReview(ctx, "s2", StatusCompleted, ConclusionSuccess, 100, 1, "")
-	store.UpdateReview(ctx, "s1", StatusFailed, ConclusionFailure, 200, 1, "err")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "s1", Repo: "a", PRNumber: 1, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "s2", Repo: "a", PRNumber: 2, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "s2", StatusCompleted, ConclusionSuccess, 100, 1, "")
+	_ = store.UpdateReview(ctx, "s1", StatusFailed, ConclusionFailure, 200, 1, "err")
 
 	records, err := store.ListReviews(ctx, ListFilter{Status: StatusFailed})
 	if err != nil {
@@ -194,7 +194,7 @@ func TestListReviews_Pagination(t *testing.T) {
 	now := time.Now().UTC()
 
 	for i := 0; i < 10; i++ {
-		store.CreateReview(ctx, ReviewRecord{
+		_ = store.CreateReview(ctx, ReviewRecord{
 			RunID:      "pg-" + string(rune('A'+i)),
 			Repo:       "owner/repo.git",
 			PRNumber:   i + 1,
@@ -234,7 +234,7 @@ func TestListReviews_DefaultLimit(t *testing.T) {
 	now := time.Now().UTC()
 
 	for i := 0; i < 60; i++ {
-		store.CreateReview(ctx, ReviewRecord{
+		_ = store.CreateReview(ctx, ReviewRecord{
 			RunID:      "def-" + string(rune('A'+i%26)) + string(rune('A'+i/26)),
 			Repo:       "owner/repo.git",
 			PRNumber:   i + 1,
@@ -259,20 +259,20 @@ func TestGetMetrics(t *testing.T) {
 	now := time.Now().UTC()
 
 	// Insert reviews with different conclusions
-	store.CreateReview(ctx, ReviewRecord{RunID: "m1", Repo: "a", PRNumber: 1, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.UpdateReview(ctx, "m1", StatusCompleted, ConclusionSuccess, 5000, 1, "")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "m1", Repo: "a", PRNumber: 1, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "m1", StatusCompleted, ConclusionSuccess, 5000, 1, "")
 
-	store.CreateReview(ctx, ReviewRecord{RunID: "m2", Repo: "a", PRNumber: 2, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.UpdateReview(ctx, "m2", StatusFailed, ConclusionFailure, 3000, 2, "err")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "m2", Repo: "a", PRNumber: 2, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "m2", StatusFailed, ConclusionFailure, 3000, 2, "err")
 
-	store.CreateReview(ctx, ReviewRecord{RunID: "m3", Repo: "a", PRNumber: 3, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.UpdateReview(ctx, "m3", StatusTimedOut, ConclusionTimedOut, 10000, 1, "")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "m3", Repo: "a", PRNumber: 3, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "m3", StatusTimedOut, ConclusionTimedOut, 10000, 1, "")
 
-	store.CreateReview(ctx, ReviewRecord{RunID: "m4", Repo: "a", PRNumber: 4, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
-	store.UpdateReview(ctx, "m4", StatusCancelled, ConclusionCancelled, 1000, 1, "")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "m4", Repo: "a", PRNumber: 4, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "m4", StatusCancelled, ConclusionCancelled, 1000, 1, "")
 
 	// One pending review should not count in conclusions
-	store.CreateReview(ctx, ReviewRecord{RunID: "m5", Repo: "a", PRNumber: 5, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "m5", Repo: "a", PRNumber: 5, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
 
 	metrics, err := store.GetMetrics(ctx)
 	if err != nil {

@@ -6,21 +6,6 @@ import (
 	"time"
 )
 
-// mockWSConn implements the parts of websocket.Conn used by WSClient.
-type mockWSConn struct {
-	readMessages  chan []byte
-	writeMessages chan []byte
-	closed        chan struct{}
-}
-
-func newMockWSConn() *mockWSConn {
-	return &mockWSConn{
-		readMessages:  make(chan []byte, 64),
-		writeMessages: make(chan []byte, 64),
-		closed:        make(chan struct{}),
-	}
-}
-
 func TestHub_RegisterAndClientCount(t *testing.T) {
 	h := NewHub()
 	defer close(h.register)

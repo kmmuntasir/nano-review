@@ -214,7 +214,7 @@ func (c *WSClient) WritePump() {
 		message, ok := <-c.send
 		if !ok {
 			// Channel closed by hub.
-			c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 			return
 		}
 		if err := c.conn.WriteMessage(websocket.TextMessage, message); err != nil {

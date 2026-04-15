@@ -25,9 +25,6 @@ const (
 	// readable by JavaScript for WebSocket authentication.
 	tokenCookieName = "nano_session_token"
 
-	// signatureLength is the byte length of the HMAC-SHA256 signature.
-	signatureLength = 32
-
 	// randomBytesLength is the number of random bytes used in the token.
 	randomBytesLength = 16
 )
@@ -336,7 +333,7 @@ func (m *SessionManager) RequireAuth(next http.Handler) http.Handler {
 func writeUnauthorized(w http.ResponseWriter, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusUnauthorized)
-	w.Write([]byte(`{"error":"` + msg + `"}`))
+	_, _ = w.Write([]byte(`{"error":"` + msg + `"}`))
 }
 
 // computeSignature generates an HMAC-SHA256 signature over the session ID,
