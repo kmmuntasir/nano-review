@@ -165,7 +165,7 @@ const claudeMCPConfigPath = "/app/mcp-config.json"
 // MCP server using GITHUB_PAT for authentication. This file is passed to Claude
 // Code via --mcp-config --strict-mcp-config to prevent project-level .mcp.json
 // files in cloned repos from interfering with the review workflow.
-func configureClaudeMCP() string {
+func configureClaudeMCP(outputPath string) string {
 	pat := os.Getenv("GITHUB_PAT")
 	if pat == "" {
 		slog.Error("GITHUB_PAT not set, skipping MCP configuration")
@@ -190,12 +190,12 @@ func configureClaudeMCP() string {
 		return ""
 	}
 
-	if err := os.WriteFile(claudeMCPConfigPath, out, 0644); err != nil {
-		slog.Error("failed to write MCP config file", "path", claudeMCPConfigPath, "error", err)
+	if err := os.WriteFile(outputPath, out, 0644); err != nil {
+		slog.Error("failed to write MCP config file", "path", outputPath, "error", err)
 		return ""
 	}
-	slog.Info("GitHub MCP server configured", "config_path", claudeMCPConfigPath)
-	return claudeMCPConfigPath
+	slog.Info("GitHub MCP server configured", "config_path", outputPath)
+	return outputPath
 }
 
 func main() {
@@ -259,7 +259,7 @@ func main() {
 		}
 	}
 
-	mcpConfigPath := configureClaudeMCP()
+	mcpConfigPath := configureClaudeMCP(claudeMCPConfigPath)
 
 	dbPath := os.Getenv("DATABASE_PATH")
 	store, err := storage.Open(dbPath)
