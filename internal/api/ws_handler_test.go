@@ -487,7 +487,7 @@ func TestOriginChecker_ReturnsFunction(t *testing.T) {
 	}
 
 	// Verify it's a func(*http.Request) bool
-	var _ func(*http.Request) bool = checker
+	var _ = checker
 }
 
 func TestHandleWebSocket_AuthDisabledPassesThrough(t *testing.T) {

@@ -376,7 +376,7 @@ func TestOpen_DefaultPath(t *testing.T) {
 	// that it fails with the expected path-related error, not a parse error.
 	store, err := Open("")
 	if store != nil {
-		store.Close()
+		_ = store.Close()
 	}
 	// Expected: either permission error (can't mkdir /app/data) or success
 	// Either way, no panic and no nil-pointer dereference.

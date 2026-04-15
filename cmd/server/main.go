@@ -267,7 +267,7 @@ func main() {
 		slog.Error("failed to initialize database", "path", dbPath, "error", err)
 		os.Exit(1)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 	slog.Info("database initialized", "path", dbPath)
 
 	hub := api.NewHub()
