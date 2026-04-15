@@ -367,7 +367,7 @@ func TestOpen_CreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open failed: %v", err)
 	}
-	store.Close()
+	_ = store.Close()
 }
 
 func TestOpen_DefaultPath(t *testing.T) {
