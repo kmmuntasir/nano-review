@@ -35,6 +35,7 @@ Thumbs.db
 
 # Application logs
 /app/logs/
+logs/
 
 # Coverage reports
 coverage.html
