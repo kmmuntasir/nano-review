@@ -345,7 +345,8 @@ ENTRYPOINT ["/usr/local/bin/nano-review"]
 | `ANTHROPIC_AUTH_TOKEN` | Yes | Auth token for Claude Code CLI. |
 | `GITHUB_PAT` | Yes | GitHub Personal Access Token for the MCP server and git clone authentication. |
 | `CLAUDE_CODE_PATH` | No | Override path to `claude` binary (default: auto-detected). |
-| `MAX_TURNS` | No | Max agentic turns for Claude Code (default: `30`). |
+| `MAX_REVIEW_DURATION` | No | Maximum review duration in seconds (default: `600`). |
+| `MAX_RETRIES` | No | Maximum retry attempts for transient failures (default: `2`). |
 | `ANTHROPIC_BASE_URL` | No | Custom API endpoint (e.g., Z.AI proxy). |
 | `API_TIMEOUT_MS` | No | API timeout in milliseconds. |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | No | Override haiku model name. |
@@ -360,7 +361,6 @@ PORT=8080
 WEBHOOK_SECRET=your-webhook-secret-here
 ANTHROPIC_AUTH_TOKEN=your-auth-token
 GITHUB_PAT=ghp_...
-MAX_TURNS=30
 ```
 
 ### Docker Compose Files
