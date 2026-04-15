@@ -221,7 +221,7 @@ func HandleOAuthCallback(cfg *OAuthConfig) http.HandlerFunc {
 			http.Error(w, `{"error":"failed to fetch user info"}`, http.StatusBadGateway)
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		var info struct {
 			ID      string `json:"id"`

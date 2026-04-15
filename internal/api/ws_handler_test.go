@@ -55,7 +55,7 @@ func TestHandleWebSocket_ValidToken(t *testing.T) {
 			if err != nil {
 				t.Fatalf("dial failed: %v (status: %d)", err, resp.StatusCode)
 			}
-			defer conn.Close()
+			defer func() { _ = conn.Close() }()
 
 			if resp.StatusCode != http.StatusSwitchingProtocols {
 				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
@@ -101,7 +101,7 @@ func TestHandleWebSocket_NoUserInContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial failed: %v (status: %d)", err, resp.StatusCode)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Give hub time to process registration
 	time.Sleep(100 * time.Millisecond)
@@ -173,7 +173,7 @@ func TestHandleWebSocket_RequireAuthValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial with valid token failed: %v (status: %d)", err, resp.StatusCode)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
@@ -291,7 +291,7 @@ func TestHandleWebSocket_ClientWithAttributes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial failed: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	time.Sleep(100 * time.Millisecond)
 
@@ -520,7 +520,7 @@ func TestHandleWebSocket_AuthDisabledPassesThrough(t *testing.T) {
 	if err != nil {
 		t.Fatalf("dial failed when auth disabled: %v (status: %d)", err, resp.StatusCode)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if resp.StatusCode != http.StatusSwitchingProtocols {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)

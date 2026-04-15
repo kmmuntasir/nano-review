@@ -15,7 +15,7 @@ func TestNewStreamAccumulator_CreatesFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("newStreamAccumulator failed: %v", err)
 	}
-	defer acc.Close()
+	defer func() { _ = acc.Close() }()
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		t.Error("stream file was not created")
@@ -28,7 +28,7 @@ func TestStreamAccumulator_WritePersistsToFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer acc.Close()
+	defer func() { _ = acc.Close() }()
 
 	data := `{"type":"message","content":"hello"}
 {"type":"result","content":"done"}`
@@ -57,7 +57,7 @@ func TestStreamAccumulator_MultipleWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer acc.Close()
+	defer func() { _ = acc.Close() }()
 
 	_, _ = acc.Write([]byte(`{"type":"a"}`))
 	_, _ = acc.Write([]byte("\n"))

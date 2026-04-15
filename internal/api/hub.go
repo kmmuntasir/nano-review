@@ -161,7 +161,7 @@ func (h *Hub) BroadcastJSON(topic string, v any) {
 func (c *WSClient) ReadPump() {
 	defer func() {
 		c.hub.Unregister(c)
-		c.conn.Close()
+		_ = c.conn.Close()
 	}()
 
 	c.conn.SetReadLimit(512)
@@ -208,7 +208,7 @@ func (c *WSClient) ReadPump() {
 // WritePump writes messages from the send channel to the WebSocket connection.
 // It must be run in its own goroutine for each client.
 func (c *WSClient) WritePump() {
-	defer c.conn.Close()
+	defer func() { _ = c.conn.Close() }()
 
 	for {
 		message, ok := <-c.send
