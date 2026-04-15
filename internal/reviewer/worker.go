@@ -247,8 +247,10 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 				"exit_code", exitCode,
 				"error", err,
 			)
+			timer := time.NewTimer(backoff)
+			defer timer.Stop()
 			select {
-			case <-time.After(backoff):
+			case <-timer.C:
 			case <-reviewCtx.Done():
 				logger.Error("review cancelled during retry backoff")
 				w.recordResult(ctx, runID, startTime, storage.StatusCancelled, storage.ConclusionCancelled,
