@@ -42,7 +42,6 @@ Edit `.env` with your values:
 | `GITHUB_PAT` | GitHub Personal Access Token (repo scope) | `ghp_...` |
 | `PORT` | Server listen port (optional, default `8080`) | `8080` |
 | `CLAUDE_CODE_PATH` | Path to Claude Code binary (optional, auto-detected) | `/usr/local/bin/claude` |
-| `MAX_TURNS` | Max Claude Code turns per review (optional, default `30`) | `30` |
 | `ANTHROPIC_BASE_URL` | Custom API endpoint (optional) | `https://api.z.ai/api/anthropic` |
 | `API_TIMEOUT_MS` | API timeout in milliseconds (optional) | `3000000` |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | Override haiku model name (optional) | `claude-3-5-haiku-20241022` |
