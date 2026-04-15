@@ -1,3 +1,5 @@
+version: "2"
+
 run:
   timeout: 3m
 
@@ -7,12 +9,9 @@ linters:
     - govet
     - staticcheck
     - unused
-    - gosimple
     - ineffassign
-    - typecheck
-
-linters-settings:
-  govet:
-    enable-all: true
-    disable:
-      - fieldalignment  # noisy for MVP
+  settings:
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment  # noisy for MVP
