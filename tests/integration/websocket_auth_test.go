@@ -18,6 +18,18 @@ var wsDialer = &websocket.Dialer{
 	TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 }
 
+func waitForCondition(t *testing.T, interval, timeout time.Duration, fn func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("waitForCondition timed out: %s", msg)
+}
+
 func TestWebSocket_ConnectsWithCookie(t *testing.T) {
 	srv := newIntegrationServer(t)
 	defer srv.Close()
@@ -38,12 +50,9 @@ func TestWebSocket_ConnectsWithCookie(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	count := srv.hub.ClientCount()
-	if count != 1 {
-		t.Errorf("hub client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		return srv.hub.ClientCount() == 1
+	}, "expected hub client count 1")
 }
 
 func TestWebSocket_ConnectsWithQueryParam(t *testing.T) {
@@ -64,12 +73,9 @@ func TestWebSocket_ConnectsWithQueryParam(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	count := srv.hub.ClientCount()
-	if count != 1 {
-		t.Errorf("hub client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		return srv.hub.ClientCount() == 1
+	}, "expected hub client count 1")
 }
 
 func TestWebSocket_401WithoutAuth(t *testing.T) {

@@ -61,16 +61,11 @@ func TestHandleWebSocket_ValidToken(t *testing.T) {
 				t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 			}
 
-			// Give hub time to process registration
-			time.Sleep(100 * time.Millisecond)
-
-			hub.mu.RLock()
-			count := len(hub.clients)
-			hub.mu.RUnlock()
-
-			if count != 1 {
-				t.Errorf("client count = %d, want 1", count)
-			}
+			waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+				hub.mu.RLock()
+				defer hub.mu.RUnlock()
+				return len(hub.clients) == 1
+			}, "expected 1 registered client")
 
 			// Verify the registered client has the correct userID
 			hub.mu.RLock()
@@ -103,16 +98,11 @@ func TestHandleWebSocket_NoUserInContext(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	// Give hub time to process registration
-	time.Sleep(100 * time.Millisecond)
-
-	hub.mu.RLock()
-	count := len(hub.clients)
-	hub.mu.RUnlock()
-
-	if count != 1 {
-		t.Errorf("client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 1
+	}, "expected 1 registered client")
 
 	// User with empty ID should be registered (no crash)
 	hub.mu.RLock()
@@ -179,15 +169,11 @@ func TestHandleWebSocket_RequireAuthValidToken(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	hub.mu.RLock()
-	count := len(hub.clients)
-	hub.mu.RUnlock()
-
-	if count != 1 {
-		t.Errorf("client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 1
+	}, "expected 1 registered client")
 }
 
 func TestHandleWebSocket_RequireAuthMissingCookie(t *testing.T) {
@@ -217,15 +203,11 @@ func TestHandleWebSocket_RequireAuthMissingCookie(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	hub.mu.RLock()
-	count := len(hub.clients)
-	hub.mu.RUnlock()
-
-	if count != 0 {
-		t.Errorf("client count = %d, want 0 (no client should be registered)", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 0
+	}, "expected 0 clients (no client should be registered)")
 }
 
 func TestHandleWebSocket_RequireAuthInvalidToken(t *testing.T) {
@@ -254,15 +236,11 @@ func TestHandleWebSocket_RequireAuthInvalidToken(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
 	}
 
-	time.Sleep(50 * time.Millisecond)
-
-	hub.mu.RLock()
-	count := len(hub.clients)
-	hub.mu.RUnlock()
-
-	if count != 0 {
-		t.Errorf("client count = %d, want 0 (no client should be registered)", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 0
+	}, "expected 0 clients (no client should be registered)")
 }
 
 func TestHandleWebSocket_ClientWithAttributes(t *testing.T) {
@@ -293,7 +271,11 @@ func TestHandleWebSocket_ClientWithAttributes(t *testing.T) {
 	}
 	defer func() { _ = conn.Close() }()
 
-	time.Sleep(100 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 1
+	}, "expected 1 registered client")
 
 	hub.mu.RLock()
 	var foundUserID string
@@ -526,13 +508,9 @@ func TestHandleWebSocket_AuthDisabledPassesThrough(t *testing.T) {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusSwitchingProtocols)
 	}
 
-	time.Sleep(100 * time.Millisecond)
-
-	hub.mu.RLock()
-	count := len(hub.clients)
-	hub.mu.RUnlock()
-
-	if count != 1 {
-		t.Errorf("client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		hub.mu.RLock()
+		defer hub.mu.RUnlock()
+		return len(hub.clients) == 1
+	}, "expected 1 registered client")
 }

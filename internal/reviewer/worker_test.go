@@ -140,6 +140,18 @@ func (m *mockLogger) getChildren() []*mockLogger {
 // Helpers
 // ---------------------------------------------------------------------------
 
+func waitForCondition(t *testing.T, interval, timeout time.Duration, fn func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("waitForCondition timed out: %s", msg)
+}
+
 func skipIfNoGit(t *testing.T) {
 	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
@@ -213,33 +225,17 @@ func TestProcessReview_CloneFailure_CleansUp(t *testing.T) {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
 
-	// Wait for the async goroutine to complete
-	time.Sleep(2 * time.Second)
-
-	// Verify Claude was never called (clone failed before that step)
-	calls := claude.getCalls()
-	if len(calls) != 0 {
-		t.Errorf("claude.Run called %d times, want 0 after clone failure", len(calls))
-	}
-
-	// Verify an error was logged about clone failure.
-	// processReview calls logger.With() first, which returns a child mockLogger,
-	// so the error is logged on the child, not the parent.
-	found := false
-	for _, child := range logger.getChildren() {
-		for _, e := range child.getErrors() {
-			if strings.Contains(e.msg, "git clone failed") {
-				found = true
-				break
+	// Wait for the async goroutine to complete and log the error
+	waitForCondition(t, 50*time.Millisecond, 5*time.Second, func() bool {
+		for _, child := range logger.getChildren() {
+			for _, e := range child.getErrors() {
+				if strings.Contains(e.msg, "git clone failed") {
+					return true
+				}
 			}
 		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected error log containing 'git clone failed' on child logger, got none")
-	}
+		return false
+	}, "expected error log containing 'git clone failed'")
 }
 
 func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
@@ -269,8 +265,17 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
 
-	// Wait for async goroutine
-	time.Sleep(2 * time.Second)
+	// Wait for async goroutine to complete
+	waitForCondition(t, 50*time.Millisecond, 5*time.Second, func() bool {
+		for _, child := range logger.getChildren() {
+			for _, e := range child.getErrors() {
+				if strings.Contains(e.msg, "claude execution failed") {
+					return true
+				}
+			}
+		}
+		return false
+	}, "expected error log from claude failure")
 
 	_ = runID
 }
@@ -538,24 +543,16 @@ func TestProcessReview_Timeout_LogsTimeoutMessage(t *testing.T) {
 	}
 
 	// Wait for the timeout to fire and the goroutine to finish
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify the timeout error was logged on the child logger
-	found := false
-	for _, child := range logger.getChildren() {
-		for _, e := range child.getErrors() {
-			if e.msg == "review timed out" {
-				found = true
-				break
+	waitForCondition(t, 10*time.Millisecond, 2*time.Second, func() bool {
+		for _, child := range logger.getChildren() {
+			for _, e := range child.getErrors() {
+				if e.msg == "review timed out" {
+					return true
+				}
 			}
 		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Errorf("expected error log 'review timed out' on child logger, got none")
-	}
+		return false
+	}, "expected error log 'review timed out'")
 }
 
 func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
@@ -581,7 +578,6 @@ func TestProcessReview_NoTimeout_CompletesNormally(t *testing.T) {
 	}
 
 	wg.Wait()
-	time.Sleep(100 * time.Millisecond)
 
 	// Verify no timeout was logged
 	for _, child := range logger.getChildren() {
@@ -668,7 +664,9 @@ func TestProcessReview_RetryOnTransientError(t *testing.T) {
 	}
 
 	// Wait for async goroutine (includes 1s backoff on first retry)
-	time.Sleep(3 * time.Second)
+	waitForCondition(t, 100*time.Millisecond, 10*time.Second, func() bool {
+		return len(claude.getCalls()) >= 2
+	}, "expected 2 claude.Run calls (initial + 1 retry)")
 
 	_ = runID
 
@@ -712,28 +710,20 @@ func TestProcessReview_NoRetryOnDeterministicError(t *testing.T) {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
 
-	time.Sleep(2 * time.Second)
+	waitForCondition(t, 50*time.Millisecond, 5*time.Second, func() bool {
+		for _, child := range logger.getChildren() {
+			for _, e := range child.getErrors() {
+				if e.msg == "claude execution failed" {
+					return true
+				}
+			}
+		}
+		return false
+	}, "expected error log 'claude execution failed'")
 
 	calls := claude.getCalls()
 	if len(calls) != 1 {
 		t.Fatalf("claude.Run called %d times, want 1 (no retry for deterministic error)", len(calls))
-	}
-
-	// Should log a non-retry failure
-	found := false
-	for _, child := range logger.getChildren() {
-		for _, e := range child.getErrors() {
-			if e.msg == "claude execution failed" {
-				found = true
-				break
-			}
-		}
-		if found {
-			break
-		}
-	}
-	if !found {
-		t.Error("expected error log 'claude execution failed' for deterministic error, got none")
 	}
 }
 
@@ -757,7 +747,9 @@ func TestProcessReview_RetryExhausted_LogsFinalError(t *testing.T) {
 	}
 
 	// Wait for 2 retries with backoff (1s + 2s) plus processing
-	time.Sleep(5 * time.Second)
+	waitForCondition(t, 100*time.Millisecond, 15*time.Second, func() bool {
+		return len(claude.getCalls()) >= 3
+	}, "expected 3 claude.Run calls (initial + 2 retries)")
 
 	calls := claude.getCalls()
 	if len(calls) != 3 {
@@ -803,7 +795,16 @@ func TestProcessReview_NoRetryOnTimeout(t *testing.T) {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
 
-	time.Sleep(200 * time.Millisecond)
+	waitForCondition(t, 10*time.Millisecond, 2*time.Second, func() bool {
+		for _, child := range logger.getChildren() {
+			for _, e := range child.getErrors() {
+				if e.msg == "review timed out" {
+					return true
+				}
+			}
+		}
+		return false
+	}, "expected error log 'review timed out'")
 
 	// Should NOT have retried — context was cancelled
 	foundRetry := false

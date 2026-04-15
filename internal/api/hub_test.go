@@ -6,6 +6,18 @@ import (
 	"time"
 )
 
+func waitForCondition(t *testing.T, interval, timeout time.Duration, fn func() bool, msg string) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if fn() {
+			return
+		}
+		time.Sleep(interval)
+	}
+	t.Fatalf("waitForCondition timed out: %s", msg)
+}
+
 func TestHub_RegisterAndClientCount(t *testing.T) {
 	h := NewHub()
 	defer close(h.register)
@@ -14,16 +26,11 @@ func TestHub_RegisterAndClientCount(t *testing.T) {
 
 	h.Register(c)
 
-	// Give the hub time to process
-	time.Sleep(50 * time.Millisecond)
-
-	h.mu.RLock()
-	count := len(h.clients)
-	h.mu.RUnlock()
-
-	if count != 1 {
-		t.Errorf("client count = %d, want 1", count)
-	}
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 }
 
 func TestHub_BroadcastToSubscribers(t *testing.T) {
@@ -31,10 +38,19 @@ func TestHub_BroadcastToSubscribers(t *testing.T) {
 
 	c := &WSClient{hub: h, send: make(chan []byte, 16)}
 	h.Register(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 
 	h.Subscribe(c, "run:test-123")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		subs, ok := h.topics["run:test-123"]
+		return ok && len(subs) == 1
+	}, "expected subscription to run:test-123")
 
 	msg := []byte(`{"type":"stream","run_id":"test-123","data":"hello"}`)
 	h.Broadcast("run:test-123", msg)
@@ -54,7 +70,11 @@ func TestHub_BroadcastNonSubscriberGetsNothing(t *testing.T) {
 
 	c := &WSClient{hub: h, send: make(chan []byte, 16)}
 	h.Register(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 
 	// Broadcast to a topic c is NOT subscribed to
 	h.Broadcast("run:other-id", []byte(`{"type":"stream"}`))
@@ -72,13 +92,27 @@ func TestHub_Unsubscribe(t *testing.T) {
 
 	c := &WSClient{hub: h, send: make(chan []byte, 16)}
 	h.Register(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 
 	h.Subscribe(c, "run:test-123")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		subs, ok := h.topics["run:test-123"]
+		return ok && len(subs) == 1
+	}, "expected subscription to run:test-123")
 
 	h.Unsubscribe(c, "run:test-123")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		subs, ok := h.topics["run:test-123"]
+		return !ok || len(subs) == 0
+	}, "expected unsubscription from run:test-123")
 
 	h.Broadcast("run:test-123", []byte(`{"type":"stream"}`))
 
@@ -95,14 +129,26 @@ func TestHub_UnregisterRemovesFromTopics(t *testing.T) {
 
 	c := &WSClient{hub: h, send: make(chan []byte, 16)}
 	h.Register(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 
 	h.Subscribe(c, "run:test-123")
 	h.Subscribe(c, "all")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.topics) == 2
+	}, "expected 2 topic subscriptions")
 
 	h.Unregister(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 0
+	}, "expected 0 clients after unregister")
 
 	// Channel should be closed after unregister
 	_, ok := <-c.send
@@ -116,10 +162,19 @@ func TestHub_BroadcastJSON(t *testing.T) {
 
 	c := &WSClient{hub: h, send: make(chan []byte, 16)}
 	h.Register(c)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 1
+	}, "expected 1 registered client")
 
 	h.Subscribe(c, "all")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		subs, ok := h.topics["all"]
+		return ok && len(subs) == 1
+	}, "expected subscription to all")
 
 	h.BroadcastJSON("all", map[string]string{
 		"type":   "review_update",
@@ -154,12 +209,21 @@ func TestHub_MultipleSubscribers(t *testing.T) {
 	h.Register(c1)
 	h.Register(c2)
 	h.Register(c3)
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		return len(h.clients) == 3
+	}, "expected 3 registered clients")
 
 	// Only c1 and c2 subscribe
 	h.Subscribe(c1, "run:test")
 	h.Subscribe(c2, "run:test")
-	time.Sleep(50 * time.Millisecond)
+	waitForCondition(t, 5*time.Millisecond, 500*time.Millisecond, func() bool {
+		h.mu.RLock()
+		defer h.mu.RUnlock()
+		subs, ok := h.topics["run:test"]
+		return ok && len(subs) == 2
+	}, "expected 2 subscribers to run:test")
 
 	msg := []byte(`{"type":"stream","data":"test"}`)
 	h.Broadcast("run:test", msg)
