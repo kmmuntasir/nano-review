@@ -110,7 +110,6 @@ Key environment variables (see [`.env.example`](.env.example) for the full list)
 | `GITHUB_PAT` | Yes | -- | GitHub PAT with `repo` scope (clone + MCP) |
 | `PORT` | No | `8080` | Server listen port |
 | `CLAUDE_CODE_PATH` | No | auto-detected | Path to the Claude Code binary |
-| `MAX_TURNS` | No | `30` | Maximum agentic turns per review |
 | `CLAUDE_MODEL` | No | `sonnet` | Claude model for reviews (`haiku`, `sonnet`, `opus`) |
 | `MAX_REVIEW_DURATION` | No | `600` | Maximum review duration in seconds |
 | `MAX_RETRIES` | No | `2` | Retry attempts for transient failures |
