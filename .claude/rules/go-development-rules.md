@@ -74,14 +74,30 @@ All config via environment variables. No config files, no flags (except what Doc
 | `ANTHROPIC_AUTH_TOKEN` | Yes | — |
 | `GITHUB_PAT` | Yes | — |
 | `CLAUDE_CODE_PATH` | No | auto-detected |
-| `MAX_TURNS` | No | `30` |
+| `CLAUDE_MODEL` | No | `sonnet` |
+| `MAX_REVIEW_DURATION` | No | `600` (10 minutes) |
+| `MAX_RETRIES` | No | `2` |
 | `ANTHROPIC_BASE_URL` | No | — |
 | `API_TIMEOUT_MS` | No | — |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | No | — |
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | No | — |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | No | — |
 | `CLAUDE_CODE_DISABLE_1M_CONTEXT` | No | — |
+| `DISABLE_TELEMETRY` | No | — |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | No | — |
 | `DATABASE_PATH` | No | `/app/data/reviews.db` |
+| `AUTH_ENABLED` | No | `true` |
+| `GOOGLE_CLIENT_ID` | No | — |
+| `GOOGLE_CLIENT_SECRET` | No | — |
+| `SESSION_SECRET` | No | falls back to `WEBHOOK_SECRET` |
+| `GOOGLE_OAUTH_REDIRECT_URI` | No | — |
+| `SESSION_MAX_AGE` | No | `168h` (7 days) |
+| `SESSION_MAX_AGE_HOURS` | No | `24` |
+| `SESSION_CLEANUP_INTERVAL` | No | `1h` |
+| `SECURE_COOKIES` | No | `true` |
+| `AUTH_COOKIE_DOMAIN` | No | — |
+| `ALLOWED_EMAIL_DOMAINS` | No | — |
+| `WS_ALLOWED_ORIGINS` | No | — (all origins) |
 
 ### Docker
 
