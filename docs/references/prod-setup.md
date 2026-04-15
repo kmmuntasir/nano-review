@@ -45,7 +45,8 @@ ANTHROPIC_AUTH_TOKEN=your-prod-auth-token
 GITHUB_PAT=ghp_prod_...
 PORT=8080
 CLAUDE_CODE_PATH=/usr/local/bin/claude
-MAX_TURNS=30
+MAX_REVIEW_DURATION=600
+MAX_RETRIES=2
 ```
 
 ### 3. Build and Start
@@ -168,6 +169,8 @@ docker compose logs -f nano-review
 docker compose exec nano-review cat /app/logs/review.log | tail -100
 docker compose exec nano-review ls -la /app/logs/
 ```
+
+> Note: `docker compose exec` works here because `ls` and `cat` are available in the runtime image. Go commands (build, test, vet) must use `docker compose run --rm` instead — see [dev-setup.md](dev-setup.md) for details.
 
 ### Key Log Events to Watch
 
