@@ -38,7 +38,7 @@ GitHub Action  ---(HTTP POST)--->  Nano Review API Server (Go)
                                    Parse payload (repo URL, PR number, branches)
                                         |
                                         v
-                                   Clone repo into /tmp/<run-id>
+                                   Clone repo into /tmp/nano-review-<id>
                                         |
                                         v
                                    Spawn Claude Code CLI (headless, bypass permissions)
@@ -49,7 +49,7 @@ GitHub Action  ---(HTTP POST)--->  Nano Review API Server (Go)
                                    (reads diff, posts inline comments, submits review)
                                         |
                                         v
-                                   Force-delete /tmp/<run-id>
+                                   Force-delete /tmp/nano-review-<id>
 ```
 
 ### Components
@@ -107,11 +107,11 @@ Receives a webhook payload from GitHub Actions and triggers an asynchronous PR r
 For each incoming review request:
 
 1. **Generate run ID** - Create a unique identifier (UUID).
-2. **Create temp directory** - `/tmp/<run-id>`.
-3. **Clone repository** - `git clone <repo_url> --branch <head_branch> --single-branch /tmp/<run-id>/<repo-name>/`. The GitHub PAT is injected into the clone URL at runtime (never written to disk or logged).
+2. **Create temp directory** - `/tmp/nano-review-<id>`.
+3. **Clone repository** - `git clone <repo_url> --branch <head_branch> --single-branch /tmp/nano-review-<id>/<repo-name>/`. The GitHub PAT is injected into the clone URL at runtime (never written to disk or logged).
 4. **Launch Claude Code** - Execute:
    ```bash
-   cd /tmp/<run-id> && claude -p "/pr-review Review pull request #<pr_number> in <owner>/<repo> (base: <base_branch>, head: <head_branch>). The repo is cloned at ./<repo-name>/" \
+   cd /tmp/nano-review-<id> && claude -p "/pr-review Review pull request #<pr_number> in <owner>/<repo> (base: <base_branch>, head: <head_branch>). The repo is cloned at ./<repo-name>/" \
      --dangerously-skip-permissions \
      --output-format stream-json \
      --verbose \
@@ -121,7 +121,7 @@ For each incoming review request:
    ```
    Timeout is enforced via `MAX_REVIEW_DURATION` (default 600s) using Go's `context.WithTimeout`. No `--max-turns` flag is used.
 5. **Capture output** - Log stdout/stderr for debugging. The exit code determines success/failure.
-6. **Force cleanup** - `rm -rf /tmp/<run-id>` regardless of success or failure.
+6. **Force cleanup** - `rm -rf /tmp/nano-review-<id>` regardless of success or failure.
 
 The worker runs as a goroutine. No concurrency limit in MVP (one goroutine per request).
 
@@ -387,15 +387,15 @@ HTTP handler for `POST /review`:
 
 Core review logic:
 - `StartReview(payload)` - Generates a UUID, launches a goroutine that runs the full review flow (clone, Claude Code, cleanup).
-- Clone: `git clone <repo_url> --branch <head_branch> --single-branch /tmp/<run-id>`.
+- Clone: `git clone <repo_url> --branch <head_branch> --single-branch /tmp/nano-review-<id>`.
 - Execute Claude Code CLI with the `/pr-review` skill.
-- Cleanup: `os.RemoveAll("/tmp/<run-id>")` in a deferred call, always runs.
+- Cleanup: `os.RemoveAll("/tmp/nano-review-<id>")` in a deferred call, always runs.
 
 ## 12. Security Considerations
 
 - **Webhook authentication**: Every request must include a valid `X-Webhook-Secret` header matching the server's configured secret.
 - **No secrets in code**: All secrets (`ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`, `WEBHOOK_SECRET`) are injected via environment variables.
-- **Ephemeral execution**: Each review runs in a fresh `/tmp/<run-id>` directory that is forcefully deleted after completion.
+- **Ephemeral execution**: Each review runs in a fresh `/tmp/nano-review-<id>` directory that is forcefully deleted after completion.
 - **GitHub PAT scoping**: The `GITHUB_PAT` should have minimal permissions (`repo` scope for PR read/write comments and git clone). The PAT is injected into git clone URLs at runtime (never written to disk or logged).
 
 ## 13. Error Handling
