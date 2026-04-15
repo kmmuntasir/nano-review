@@ -64,7 +64,7 @@ services:
     # Optional Variables (with defaults):
     #   PORT                        Server port (default: 8080)
     #   CLAUDE_CODE_PATH            Path to claude binary (default: auto-detected)
-    #   MAX_TURNS                   Max agentic turns per review (default: 30)
+    #   MAX_REVIEW_DURATION         Review timeout in seconds (default: 600)
     #   CLAUDE_MODEL                Model for reviews: haiku|sonnet|opus (default: sonnet)
     #   MAX_REVIEW_DURATION         Review timeout in seconds (default: 600)
     #   MAX_RETRIES                 Retry attempts for transient failures (default: 2)
