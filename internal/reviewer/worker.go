@@ -148,7 +148,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
 		return
 	}
-	defer os.RemoveAll(dir)
+	defer func() { _ = os.RemoveAll(dir) }()
 
 	owner, repo := parseRepoURL(p.RepoURL)
 	repoDir := filepath.Join(dir, repo)
@@ -191,11 +191,11 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 			logger.Error("failed to create stream accumulator, using non-streaming mode", "error", accumErr)
 			output, exitCode, err = w.claude.Run(reviewCtx, dir, args...)
 		} else {
-			defer accum.Close()
+			defer func() { _ = accum.Close() }()
 			writer := io.Writer(accum)
 			if w.broadcaster != nil {
 				ws := newWSStreamWriter(accum, w.broadcaster, runID)
-				defer ws.Close()
+				defer func() { _ = ws.Close() }()
 				writer = ws
 			}
 			exitCode, err = w.claude.RunStreaming(reviewCtx, dir, writer, args...)

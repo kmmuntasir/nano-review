@@ -155,7 +155,7 @@ func (s *sqliteStore) ListSessions(ctx context.Context, f SessionListFilter) ([]
 	if err != nil {
 		return nil, fmt.Errorf("list sessions: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var records []SessionRecord
 	for rows.Next() {

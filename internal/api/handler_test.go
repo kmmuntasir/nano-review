@@ -172,7 +172,7 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 	handler(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	var result AcceptResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
@@ -234,7 +234,7 @@ func TestHandleListReviews_Success(t *testing.T) {
 	HandleListReviews(getter)(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -261,7 +261,7 @@ func TestHandleListReviews_StorageError(t *testing.T) {
 	HandleListReviews(getter)(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
@@ -294,7 +294,7 @@ func TestHandleGetReview_Success(t *testing.T) {
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -321,7 +321,7 @@ func TestHandleGetReview_NotFound(t *testing.T) {
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusNotFound {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusNotFound)
@@ -342,7 +342,7 @@ func TestHandleGetReview_StorageError(t *testing.T) {
 	mux.ServeHTTP(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)
@@ -372,7 +372,7 @@ func TestHandleGetMetrics_Success(t *testing.T) {
 	HandleGetMetrics(getter)(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
@@ -402,7 +402,7 @@ func TestHandleGetMetrics_StorageError(t *testing.T) {
 	HandleGetMetrics(getter)(w, req)
 
 	resp := w.Result()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusInternalServerError)

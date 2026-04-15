@@ -104,7 +104,7 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) ([]ReviewRe
 	if err != nil {
 		return nil, fmt.Errorf("list reviews: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var records []ReviewRecord
 	for rows.Next() {

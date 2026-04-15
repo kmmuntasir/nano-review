@@ -45,7 +45,7 @@ func Open(dbPath string) (*sqliteStore, error) {
 	db.SetConnMaxLifetime(0)
 
 	if err := migrate(db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate database: %w", err)
 	}
 
