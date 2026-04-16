@@ -63,8 +63,14 @@ func TestCallback_CompleteFlow(t *testing.T) {
 	srv := newIntegrationServer(t)
 	defer srv.Close()
 
-	client := newRedirectClient(t)
-	callbackURL := srv.baseURL + "/auth/callback?code=fake-auth-code"
+	state, loginClient := performOAuthLogin(t, srv)
+
+	// Redirect-following client sharing the login cookie jar (carries oauth_state).
+	client := &http.Client{
+		Jar:       loginClient.Jar,
+		Transport: loginClient.Transport,
+	}
+	callbackURL := fmt.Sprintf("%s/auth/callback?code=fake-auth-code&state=%s", srv.baseURL, state)
 	resp, err := client.Get(callbackURL)
 	if err != nil {
 		t.Fatalf("callback request failed: %v", err)
