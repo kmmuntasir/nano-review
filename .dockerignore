@@ -55,3 +55,7 @@ SECURITY.md
 
 # Vibe Kanban worktree artifacts
 .vibe/
+
+# Build output and native setup scripts
+bin/
+scripts/
