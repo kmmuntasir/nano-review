@@ -207,13 +207,14 @@ func TestCallback_InvalidCode(t *testing.T) {
 	srv := newIntegrationServer(t)
 	defer srv.Close()
 
+	state, client := performOAuthLogin(t, srv)
+
 	// Replace the mock transport with one that returns an error for token exchange.
 	srv.oauthCfg.HTTPClient = &http.Client{
 		Transport: &errorTransport{},
 	}
 
-	client := newRedirectClient(t)
-	resp, err := client.Get(srv.baseURL + "/auth/callback?code=invalid-code")
+	resp, err := client.Get(srv.baseURL + "/auth/callback?code=invalid-code&state=" + state)
 	if err != nil {
 		t.Fatalf("request failed: %v", err)
 	}
