@@ -1,39 +1,64 @@
 # Development Environment Setup
 
+## Overview
+
+Two development modes are available:
+
+| Mode | Description | Best for |
+|------|-------------|----------|
+| **Native** (recommended) | Build and run directly on the host | Fast iteration, debugging, CI |
+| **Docker** | Multi-stage container build | Reproducible env, production-like testing |
+
 ## Prerequisites
 
-- Docker and Docker Compose (v2+)
+### Native Development
+
+- Go 1.23+
 - Git
+- Claude Code CLI (`claude`)
 
-> Claude Code CLI is installed inside the Docker image at build time. No local installation needed.
+### Docker Development
 
-## Quick Start
+- Docker Engine
+- Docker Compose v2+
 
-### 1. Clone and Start
+> Claude Code CLI is installed inside the Docker image at build time — no local installation needed for Docker mode.
+
+## Quick Start (Native)
 
 ```bash
 git clone https://github.com/kmmuntasir/nano-review.git
 cd nano-review
 cp .env.example .env
-# Edit .env with your values (see below)
-docker compose up --build
+# Edit .env — fill in WEBHOOK_SECRET, ANTHROPIC_AUTH_TOKEN, GITHUB_PAT
+make native-setup
+make native-run
 ```
 
-This uses `docker-compose.yml` — the base dev configuration with:
-- Multi-stage build: Go builder → Ubuntu runtime with Claude Code CLI, git, curl
-- Port mapping (`${PORT:-8080}:8080`)
-- `.env` file loaded automatically
-- `review-logs` named volume at `/app/logs`
-- `review-data` named volume at `/app/data`
-- `restart: unless-stopped` policy
+Verify:
+
+```bash
+curl http://localhost:8080/healthz
+```
 
 Server starts on `http://localhost:8080`.
 
-### 2. Configure Environment
+## Native Commands
 
-Edit `.env` with your values:
+| Target | Description |
+|--------|-------------|
+| `make native-setup` | First-time setup: check prereqs, create dirs, bootstrap `.env`, install Claude config, build binary |
+| `make native-build` | Build `./bin/nano-review` |
+| `make native-run` | Build and run (loads `.env`) |
+| `make native-dev` | Run with auto-rebuild on file changes (requires [air](https://github.com/air-verse/air)) |
+| `make native-test` | Run tests with race detector |
+| `make native-test-cover` | Run tests with HTML coverage report |
+| `make native-lint` | Run `go vet` and `go fmt` |
+| `make native-clean` | Remove `bin/`, `data/`, `logs/` |
 
-#### Core Variables
+## Environment Variables
+
+### Core Variables
 
 | Variable | Description | Example |
 |---|---|---|
@@ -49,7 +74,7 @@ Edit `.env` with your values:
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | Override opus model name (optional) | `claude-opus-4-20250514` |
 | `CLAUDE_CODE_DISABLE_1M_CONTEXT` | Disable 1M context window (optional) | `1` |
 
-#### Review Configuration
+### Review Configuration
 
 | Variable | Description | Default |
 |---|---|---|
@@ -58,9 +83,18 @@ Edit `.env` with your values:
 | `MAX_RETRIES` | Maximum retry attempts for transient failures | `2` |
 | `DISABLE_TELEMETRY` | Disable Claude telemetry | — |
 | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | Disable non-essential network traffic | — |
-| `DATABASE_PATH` | SQLite database file path | `/app/data/reviews.db` |
+| `DATABASE_PATH` | SQLite database file path | `/app/data/reviews.db` (Docker) / `./data/reviews.db` (native) |
 
-#### Authentication Variables
+### Native-Specific Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `NANO_DATA_DIR` | Directory for SQLite database | `./data` |
+| `NANO_LOG_DIR` | Directory for log files | `./logs` |
+
+> `make native-setup` appends these to `.env` automatically if absent.
+
+### Authentication Variables
 
 > These variables are only relevant when authentication is enabled. Authentication is enabled by default; set `AUTH_ENABLED=false` to disable it entirely (useful for local development).
 
@@ -78,15 +112,35 @@ Edit `.env` with your values:
 | `AUTH_COOKIE_DOMAIN` | Cookie domain restriction | — |
 | `ALLOWED_EMAIL_DOMAINS` | Comma-separated allowed email domains | — |
 
-#### WebSocket Configuration
+### WebSocket Configuration
 
 | Variable | Description | Default |
 |---|---|---|
 | `WS_ALLOWED_ORIGINS` | Comma-separated WebSocket allowed origins (supports `https://*.example.com` wildcards) | — (all origins) |
 
-## Testing
+## Docker Setup (Alternative)
 
-> **Go is not installed on the host.** All test commands must run inside the Docker container.
+### Clone and Start
+
+```bash
+git clone https://github.com/kmmuntasir/nano-review.git
+cd nano-review
+cp .env.example .env
+# Edit .env with your values
+docker compose up --build
+```
+
+This uses `docker-compose.yml` — the base dev configuration with:
+- Multi-stage build: Go builder → Ubuntu runtime with Claude Code CLI, git, curl
+- Port mapping (`${PORT:-8080}:8080`)
+- `.env` file loaded automatically
+- `review-logs` named volume at `/app/logs`
+- `review-data` named volume at `/app/data`
+- `restart: unless-stopped` policy
+
+Server starts on `http://localhost:8080`.
+
+### Docker Testing
 
 > **Important — Multi-stage build:** The Dockerfile uses a multi-stage build. The final runtime image (Stage 2) does **not** contain the Go toolchain — only the compiled binary, `git`, `curl`, and Claude Code CLI. This means `docker compose exec nano-review go ...` will **fail** against the running container. All Go commands must use `docker compose run --rm nano-review`, which targets the builder stage.
 
@@ -108,7 +162,7 @@ docker compose run --rm nano-review go test -coverprofile=coverage.out ./... && 
 docker compose run --rm nano-review go test -tags=integration ./...
 ```
 
-## Linting
+### Docker Linting
 
 ```bash
 docker compose run --rm nano-review go vet ./...
@@ -310,8 +364,29 @@ Returns current session user info as JSON.
 ## Logs
 
 - **Console output**: structured text logs to stdout
-- **File output**: rotated JSON logs at `/app/logs/review.log` (10MB max, 7-day retention, 3 compressed backups)
-- **Review outputs**: Individual review outputs are saved to `/app/logs/reviews/` as timestamped text files (format: `<timestamp>_<repo>_pr<N>_<run-id-prefix>.txt`). This directory is created by the Dockerfile at build time. See `internal/reviewer/worker.go` for details.
+- **File output**: rotated JSON logs at `<NANO_LOG_DIR>/review.log` (native) or `/app/logs/review.log` (Docker) — 10MB max, 7-day retention, 3 compressed backups
+- **Review outputs**: Individual review outputs are saved to `<NANO_LOG_DIR>/reviews/` or `/app/logs/reviews/` as timestamped text files (format: `<timestamp>_<repo>_pr<N>_<run-id-prefix>.txt`). See `internal/reviewer/worker.go` for details.
+
+## Troubleshooting
+
+### Native Issues
+
+| Problem | Solution |
+|---------|----------|
+| `go: command not found` | Install Go 1.23+ from https://go.dev/dl/ |
+| `claude: command not found` | Install Claude Code CLI: https://docs.anthropic.com/en/docs/claude-code/overview |
+| Go version < 1.23 | Upgrade Go. Run `go version` to check |
+| Permission denied on `./bin/nano-review` | Run `chmod +x ./bin/nano-review` |
+| `database is locked` | Ensure only one process is running. Remove stale `./data/reviews.db-wal` and `./data/reviews.db-shm` files |
+| `.env` missing native variables | Run `make native-setup` again — it only appends missing keys |
+
+### Docker Issues
+
+| Problem | Solution |
+|---------|----------|
+| `docker compose exec go ...` fails | Runtime image has no Go toolchain. Use `docker compose run --rm nano-review go ...` instead |
+| Port already in use | Change `PORT` in `.env` or stop the conflicting service |
+| `review-data` volume stale | `docker compose down -v` removes volumes and data |
 
 ## Project Structure
 
@@ -371,6 +446,9 @@ web/
 config/.claude/
   settings.json                 # Claude Code MCP server config (GitHub Copilot)
   skills/pr-review/SKILL.md     # Claude Code skill definition for PR reviews
+scripts/
+  setup-native.sh               # Native first-time setup script
+  run-native.sh                 # Native run script (loads .env, execs binary)
 tests/integration/
   protected_routes_test.go      # Integration tests for auth-protected routes
   oauth_flow_test.go            # Integration tests for OAuth login/callback/logout
@@ -380,6 +458,7 @@ tests/integration/
 .github/workflows/
   review.yml                    # GitHub Action that triggers Nano Review on PRs
 Makefile                        # Build, test, and lint convenience targets
+.air.toml                       # Air live-reload config for native dev
 .golangci.yml                   # golangci-lint configuration
 go.mod                          # Go module definition
 go.sum                          # Go module checksums
