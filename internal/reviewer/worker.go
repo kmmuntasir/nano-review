@@ -59,17 +59,21 @@ type Worker struct {
 	maxReviewDuration time.Duration
 	maxRetries        int
 	streamPaths       sync.Map // runID (string) -> .stream.json absolute path (string)
+	reviewOutputDir   string
 }
 
 // NewWorker creates a new review Worker with the given dependencies.
 // If store is nil, review records are not persisted (useful for testing).
 // If broadcaster is nil, no WebSocket events are sent.
-func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, broadcaster Broadcaster, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int) *Worker {
+func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, broadcaster Broadcaster, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int, reviewOutputDir string) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
 	}
 	if maxRetries < 0 {
 		maxRetries = 0
+	}
+	if reviewOutputDir == "" {
+		reviewOutputDir = "/app/logs/reviews"
 	}
 	return &Worker{
 		claude:            claude,
@@ -83,6 +87,7 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, br
 		githubPat:         githubPat,
 		maxReviewDuration: maxReviewDuration,
 		maxRetries:        maxRetries,
+		reviewOutputDir:   reviewOutputDir,
 	}
 }
 
@@ -179,7 +184,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	}
 
 	// Set up streaming output file so the WebSocket hub can push to subscribers.
-	streamPath := streamFilePath(runID, p)
+	streamPath := streamFilePath(runID, p, w.reviewOutputDir)
 	w.streamPaths.Store(runID, streamPath)
 
 	var output string
@@ -203,7 +208,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		}
 
 		// Always persist output for debugging, even on retry
-		if saveErr := saveReviewOutput(runID, p, output); saveErr != nil {
+		if saveErr := w.saveReviewOutput(runID, p, output); saveErr != nil {
 			logger.Error("failed to save review output", "error", saveErr)
 		}
 
@@ -425,12 +430,9 @@ func sanitizeURL(raw string) string {
 	return raw
 }
 
-// reviewOutputDir is the directory where Claude CLI output files are stored.
-const reviewOutputDir = "/app/logs/reviews"
-
 // saveReviewOutput persists the raw Claude CLI output to a timestamped file.
-func saveReviewOutput(runID string, p api.ReviewPayload, output string) error {
-	if err := os.MkdirAll(reviewOutputDir, 0755); err != nil {
+func (w *Worker) saveReviewOutput(runID string, p api.ReviewPayload, output string) error {
+	if err := os.MkdirAll(w.reviewOutputDir, 0755); err != nil {
 		return fmt.Errorf("create review output directory: %w", err)
 	}
 
@@ -442,7 +444,7 @@ func saveReviewOutput(runID string, p api.ReviewPayload, output string) error {
 
 	ts := time.Now().UTC().Format("20060102-150405")
 	filename := fmt.Sprintf("%s_%s_pr%d_%s.txt", ts, repoSlug, p.PRNumber, runID[:8])
-	path := filepath.Join(reviewOutputDir, filename)
+	path := filepath.Join(w.reviewOutputDir, filename)
 
 	return os.WriteFile(path, []byte(output), 0644)
 }

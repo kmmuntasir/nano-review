@@ -91,7 +91,7 @@ func (w *wsStreamWriter) Text() string {
 
 // streamFilePath computes the path for the .stream.json file using the same
 // naming convention as saveReviewOutput.
-func streamFilePath(runID string, p api.ReviewPayload) string {
+func streamFilePath(runID string, p api.ReviewPayload, reviewOutputDir string) string {
 	repoSlug := p.RepoURL
 	if idx := strings.LastIndex(repoSlug, "/"); idx >= 0 {
 		repoSlug = repoSlug[idx+1:]

@@ -212,6 +212,16 @@ func configureClaudeMCP(outputPath string) string {
 	return outputPath
 }
 
+// resolveReviewOutputDir returns the directory for review output files.
+// If NANO_LOG_DIR is set, returns NANO_LOG_DIR/reviews; otherwise defaults
+// to /app/logs/reviews for backward compatibility.
+func resolveReviewOutputDir() string {
+	if dir := os.Getenv("NANO_LOG_DIR"); dir != "" {
+		return filepath.Join(dir, "reviews")
+	}
+	return "/app/logs/reviews"
+}
+
 func main() {
 	for _, env := range []string{"WEBHOOK_SECRET", "GITHUB_PAT"} {
 		if os.Getenv(env) == "" {
@@ -320,7 +330,7 @@ func main() {
 		}
 	}
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries)
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries, resolveReviewOutputDir())
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	if sessionSecret == "" {

@@ -71,10 +71,11 @@ func TestStreamAccumulator_MultipleWrites(t *testing.T) {
 }
 
 func TestStreamFilePath_Format(t *testing.T) {
+	const testDir = "/app/logs/reviews"
 	path := streamFilePath("12345678-1234-1234-1234-123456789012", api.ReviewPayload{
 		RepoURL:  "git@github.com:owner/repo.git",
 		PRNumber: 42,
-	})
+	}, testDir)
 
 	if !strings.HasSuffix(path, ".stream.json") {
 		t.Errorf("path should end with .stream.json, got: %s", path)
@@ -82,8 +83,8 @@ func TestStreamFilePath_Format(t *testing.T) {
 	if !strings.Contains(path, "repo_pr42_") {
 		t.Errorf("path should contain repo name and PR number, got: %s", path)
 	}
-	if !strings.HasPrefix(path, reviewOutputDir) {
-		t.Errorf("path should start with %s, got: %s", reviewOutputDir, path)
+	if !strings.HasPrefix(path, testDir) {
+		t.Errorf("path should start with %s, got: %s", testDir, path)
 	}
 	// Verify run ID prefix (first 8 chars)
 	if !strings.Contains(path, "12345678") {
@@ -95,7 +96,7 @@ func TestStreamFilePath_HTTPSURL(t *testing.T) {
 	path := streamFilePath("12345678-1234-1234-1234-123456789012", api.ReviewPayload{
 		RepoURL:  "https://github.com/owner/repo.git",
 		PRNumber: 1,
-	})
+	}, "/app/logs/reviews")
 
 	if !strings.Contains(path, "repo_pr1_") {
 		t.Errorf("path should contain repo name and PR number, got: %s", path)
