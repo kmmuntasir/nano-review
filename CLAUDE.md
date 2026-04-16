@@ -190,6 +190,7 @@ Data volume: `review-data:/app/data` for SQLite database (review history).
 - **TWO separate `.claude/` directories exist** — do NOT confuse them:
   - `.claude/` (project root) — Development-only rules for AI agents working on this codebase (Go style, testing, git workflow). Never copied into Docker.
   - `config/.claude/` — Production Claude Code configuration (skill definitions, MCP server settings) copied into the Docker image at build time. This is what runs inside the container to perform PR reviews.
+- **Always run `make lint` before committing.** Lint must pass with zero errors before any commit is created. Fix all issues found — do not bypass or skip.
 
 ## File Writing Direction
 
