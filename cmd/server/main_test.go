@@ -157,3 +157,39 @@ func TestConfigureClaudeMCP_ValidPAT(t *testing.T) {
 		t.Errorf("Authorization = %v, want %q", headers["Authorization"], "Bearer ghp_testpat123")
 	}
 }
+
+func TestResolveMCPConfigPath_Default(t *testing.T) {
+	t.Setenv("NANO_DATA_DIR", "")
+	got := resolveMCPConfigPath()
+	want := "/app/mcp-config.json"
+	if got != want {
+		t.Errorf("resolveMCPConfigPath() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveMCPConfigPath_CustomDir(t *testing.T) {
+	t.Setenv("NANO_DATA_DIR", "/tmp/data")
+	got := resolveMCPConfigPath()
+	want := filepath.Join("/tmp/data", "mcp-config.json")
+	if got != want {
+		t.Errorf("resolveMCPConfigPath() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveLogPath_Default(t *testing.T) {
+	t.Setenv("NANO_LOG_DIR", "")
+	got := resolveLogPath("review.log")
+	want := filepath.Join("/app/logs", "review.log")
+	if got != want {
+		t.Errorf("resolveLogPath() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveLogPath_CustomDir(t *testing.T) {
+	t.Setenv("NANO_LOG_DIR", "/tmp/logs")
+	got := resolveLogPath("review.log")
+	want := filepath.Join("/tmp/logs", "review.log")
+	if got != want {
+		t.Errorf("resolveLogPath() = %q, want %q", got, want)
+	}
+}
