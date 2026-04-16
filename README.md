@@ -78,6 +78,24 @@ docker compose up --build
 
 The server starts on `http://localhost:8080`. See [Configuration](#configuration) for required environment variables.
 
+### Triggering Reviews
+
+**Via GitHub Actions** -- add the `review.yml` workflow to the target repository. See [`.github/workflows/review.yml`](.github/workflows/review.yml) for the workflow file.
+
+**Via curl** -- for local testing, POST directly:
+
+```bash
+curl -X POST http://localhost:8080/review \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Secret: the-secret-from-your-env" \
+  -d '{
+    "repo_url": "https://github.com/owner/repo.git",
+    "pr_number": 10,
+    "base_branch": "main",
+    "head_branch": "feature-branch"
+  }'
+```
+
 ## Features
 
 - Async review processing -- webhook returns immediately, review runs in a background goroutine
@@ -118,7 +136,7 @@ All configuration via environment variables. Copy [`.env.example`](.env.example)
 |----------|-------------|
 | `WEBHOOK_SECRET` | Shared secret for webhook authentication |
 | `ANTHROPIC_AUTH_TOKEN` | Auth token for Claude Code CLI |
-| `GITHUB_PAT` | GitHub PAT with `repo` scope (clone + MCP) |
+| `GITHUB_PAT` | GitHub PAT with `repo` scope (clone + MCP). The GitHub account must have read access to any repository whose PRs you want reviewed. |
 
 ### Server
 

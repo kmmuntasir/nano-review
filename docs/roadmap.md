@@ -134,16 +134,21 @@ Retry logic with exponential backoff is fully implemented in `internal/reviewer/
 
 ## Priority 5: Multi-Repository Support
 
-**Problem:** The MVP targets a single pre-configured repository. Each Nano Review deployment can only review one repo.
+**Problem:** Each Nano Review deployment should support multiple repositories with per-repo configuration.
 
-**Solution:** Support multiple repositories with per-repo configuration.
+### Status: Partially Implemented
 
-### Scope
+The core multi-repo foundation is in place:
+- `ReviewPayload` includes `repo_url` — the worker accepts any repository URL via `parseRepoURL()` in `internal/reviewer/worker.go`.
+- Reviews are stored in SQLite with a `repo` column, enabling per-repo queries.
+- `GET /reviews` supports filtering by `repo` query parameter.
+- No per-repo hardcoded configuration — all repos use global settings.
 
-- The webhook payload already includes `repo_url`, so the worker already knows which repo to clone.
-- Move configuration to a database or config file keyed by `owner/repo`.
+### Remaining Scope
+
 - Per-repo settings: `max_turns`, `max_review_duration`, `review_rules`, `enabled`/`disabled`.
-- A simple admin API (`POST /repos`, `GET /repos`, `DELETE /repos/:id`) for managing repositories.
+- Move per-repo configuration to database or config file keyed by `owner/repo`.
+- Admin API (`POST /repos`, `GET /repos`, `DELETE /repos/:id`) for managing repositories.
 - Start with an in-memory config file, evolve to SQLite if persistence is needed.
 
 ---
