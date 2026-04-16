@@ -371,6 +371,8 @@ func main() {
 	mux.Handle("GET /ws", sessionMgr.RequireAuth(api.HandleWebSocket(hub, wsAllowedOrigins)))
 	mux.Handle("GET /metrics", sessionMgr.RequireAuth(api.HandleGetMetrics(store)))
 
+	mux.HandleFunc("GET /healthz", api.HandleHealthz())
+
 	mux.Handle("GET /", http.StripPrefix("/", http.FileServer(http.FS(web.FS))))
 
 	srv := &http.Server{

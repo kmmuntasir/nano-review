@@ -128,6 +128,14 @@ func HandleGetReview(getter ReviewGetter) http.HandlerFunc {
 	}
 }
 
+// HandleHealthz returns a simple health check for Docker/orchestrator liveness probes.
+// Returns 200 with {"status":"ok"} unconditionally.
+func HandleHealthz() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
 // HandleGetMetrics returns an http.HandlerFunc that returns aggregate review metrics.
 func HandleGetMetrics(getter ReviewGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {

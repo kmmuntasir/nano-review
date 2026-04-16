@@ -390,6 +390,33 @@ func TestHandleGetMetrics_Success(t *testing.T) {
 	}
 }
 
+func TestHandleHealthz(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/healthz", nil)
+	w := httptest.NewRecorder()
+
+	HandleHealthz()(w, req)
+
+	resp := w.Result()
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", ct, "application/json")
+	}
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Errorf("status = %q, want %q", body["status"], "ok")
+	}
+}
+
 func TestHandleGetMetrics_StorageError(t *testing.T) {
 	getter := &mockReviewGetter{
 		metrics: nil,
