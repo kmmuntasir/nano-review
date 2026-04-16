@@ -222,3 +222,138 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml down -v
 2. Update `.env` on the server
 3. Update GitHub Action secrets in target repo
 4. Restart: `docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d`
+
+## Native Production Deployment
+
+Run the Nano Review binary directly on the host with systemd — no Docker required. Suitable when you want minimal overhead or have existing infrastructure without container runtimes.
+
+### Prerequisites
+
+- Go 1.23+ (build machine only)
+- `git`, `curl` on the target server
+- Claude Code CLI installed on the target server
+
+### Pre-Deploy Steps
+
+```bash
+# Create dedicated user
+sudo useradd -r -s /bin/false nano-review
+
+# Create directories
+sudo mkdir -p /opt/nano-review
+sudo mkdir -p /var/lib/nano-review/data
+sudo mkdir -p /var/lib/nano-review/logs
+
+# Set ownership
+sudo chown nano-review:nano-review /opt/nano-review
+sudo chown nano-review:nano-review /var/lib/nano-review/data
+sudo chown nano-review:nano-review /var/lib/nano-review/logs
+```
+
+### Build
+
+```bash
+# On the build machine
+git clone https://github.com/kmmuntasir/nano-review.git --depth 1
+cd nano-review
+
+CGO_ENABLED=0 go build -ldflags="-s -w" -o nano-review ./cmd/server
+
+# Copy binary and static assets to server
+scp nano-review server:/opt/nano-review/nano-review
+scp -r config/.claude server:/opt/nano-review/.claude
+```
+
+### systemd Unit File
+
+Create `/etc/systemd/system/nano-review.service`:
+
+```ini
+[Unit]
+Description=Nano Review - AI PR Review Service
+After=network.target
+
+[Service]
+Type=simple
+User=nano-review
+Group=nano-review
+WorkingDirectory=/opt/nano-review
+ExecStart=/usr/local/bin/nano-review
+Restart=on-failure
+RestartSec=5
+
+Environment=WEBHOOK_SECRET=<from-secrets-manager>
+Environment=ANTHROPIC_AUTH_TOKEN=<from-secrets-manager>
+Environment=GITHUB_PAT=<from-secrets-manager>
+Environment=NANO_DATA_DIR=/var/lib/nano-review/data
+Environment=NANO_LOG_DIR=/var/lib/nano-review/logs
+Environment=PORT=8080
+Environment=AUTH_ENABLED=true
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/nano-review /tmp
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+```
+
+> **Important:** Replace placeholder secrets with values from your secrets manager. Never commit secrets to disk in plaintext.
+
+### Enable and Start
+
+```bash
+# Install binary
+sudo cp /opt/nano-review/nano-review /usr/local/bin/nano-review
+sudo chmod 755 /usr/local/bin/nano-review
+
+# Reload systemd, enable, and start
+sudo systemctl daemon-reload
+sudo systemctl enable nano-review
+sudo systemctl start nano-review
+```
+
+### Health Check
+
+```bash
+# Check service status
+sudo systemctl status nano-review
+
+# HTTP health check
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8080/review
+# Expect: 405
+
+# Full API smoke test
+curl -X POST http://localhost:8080/review \
+  -H "Content-Type: application/json" \
+  -H "X-Webhook-Secret: <your-secret>" \
+  -d '{
+    "repo_url": "https://github.com/kmmuntasir/nano-review.git",
+    "pr_number": 1,
+    "base_branch": "main",
+    "head_branch": "main"
+  }'
+# Expect: {"status":"accepted","run_id":"<uuid>"}
+```
+
+### Viewing Logs
+
+```bash
+# Journal logs (systemctl output)
+sudo journalctl -u nano-review -f
+
+# Application logs (rotated by lumberjack)
+sudo tail -f /var/lib/nano-review/logs/review.log
+```
+
+Log rotation: 10MB max file size, 7-day retention, 3 compressed backups (same as Docker).
+
+### Update / Redeploy
+
+```bash
+# Build new binary on build machine, then on server:
+sudo systemctl stop nano-review
+sudo cp /opt/nano-review/nano-review /usr/local/bin/nano-review
+sudo systemctl start nano-review
+```

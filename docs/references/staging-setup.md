@@ -114,6 +114,51 @@ docker compose exec nano-review cat /app/logs/review.log | tail -50
 
 Log rotation: 10MB max file size, 7-day retention, 3 compressed backups.
 
+## Native Staging Deployment
+
+For lighter-weight staging without Docker — useful when you want faster iteration, lower resource usage, or don't need container isolation.
+
+> **Note:** Docker remains the default for most staging deployments. Use native deployment only when container overhead is undesirable.
+
+### Prerequisites
+
+- Go 1.23+ installed on the host
+- `git` and `curl` available
+- Claude Code CLI installed (`claude` on PATH)
+
+### Steps
+
+```bash
+# 1. Clone
+git clone https://github.com/kmmuntasir/nano-review.git
+cd nano-review
+
+# 2. Set required environment variables
+export NANO_DATA_DIR=$HOME/.nano-review/data
+export NANO_LOG_DIR=$HOME/.nano-review/logs
+
+# 3. Create directories
+mkdir -p "$NANO_DATA_DIR" "$NANO_LOG_DIR"
+
+# 4. One-time native setup (installs Claude Code, configures environment)
+make native-setup
+
+# 5. Build
+make native-build
+
+# 6. Run
+./bin/nano-review
+```
+
+Provide the usual required env vars (`WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`) via a `.env` file or export them before running. `NANO_DATA_DIR` defaults to `./data` and `NANO_LOG_DIR` defaults to `./logs` if unset.
+
+### Stopping / Restarting
+
+```bash
+# Ctrl+C stops the process
+# Or use a process manager like systemd (see prod-setup.md for a unit file template)
+```
+
 ## Troubleshooting
 
 ```bash
