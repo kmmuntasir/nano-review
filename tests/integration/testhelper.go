@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -189,26 +190,44 @@ func newNoFollowClient(t *testing.T) *http.Client {
 	}
 }
 
-// authenticatedClient performs a full OAuth callback flow and returns an
-// *http.Client with valid session cookies. The returned client can be used
+// performOAuthLogin hits /auth/login with a no-follow client and extracts
+// the OAuth state parameter from the redirect URL. The returned client
+// carries the oauth_state cookie needed by the CSRF check in /auth/callback.
+func performOAuthLogin(t *testing.T, srv *integrationServer) (state string, client *http.Client) {
+	t.Helper()
+	loginClient := newNoFollowClient(t)
+	resp, err := loginClient.Get(srv.baseURL + "/auth/login")
+	if err != nil {
+		t.Fatalf("login request failed: %v", err)
+	}
+	resp.Body.Close()
+
+	redirectURL, err := url.Parse(resp.Header.Get("Location"))
+	if err != nil {
+		t.Fatalf("failed to parse redirect URL: %v", err)
+	}
+	return redirectURL.Query().Get("state"), loginClient
+}
+
+// authenticatedClient performs a full OAuth login+callback flow and returns
+// an *http.Client with valid session cookies. The returned client can be used
 // directly in tests that require an authenticated user.
 func authenticatedClient(t *testing.T, srv *integrationServer) *http.Client {
 	t.Helper()
 
-	client := newRedirectClient(t)
+	state, loginClient := performOAuthLogin(t, srv)
 
-	callbackURL := srv.baseURL + "/auth/callback?code=fake-auth-code"
-	resp, err := client.Get(callbackURL)
+	callbackURL := srv.baseURL + "/auth/callback?code=fake-auth-code&state=" + state
+	resp, err := loginClient.Get(callbackURL)
 	if err != nil {
 		t.Fatalf("oauth callback request failed: %v", err)
 	}
-	defer resp.Body.Close()
+	resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		// After following the 302 redirect to /, we expect 200 from the
-		// SPA file server or a simple 200.
-		// If / is not served (no static files in test), accept the 302 chain.
+	// The callback sets session cookies and redirects to /.
+	// Switch to a redirect-following client that reuses the same jar.
+	return &http.Client{
+		Jar:       loginClient.Jar,
+		Transport: loginClient.Transport,
 	}
-
-	return client
 }
