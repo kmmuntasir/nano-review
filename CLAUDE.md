@@ -17,17 +17,33 @@ Implementation complete. The codebase includes 34 Go source files, a web dashboa
 
 ### First-Time Setup
 
-The project requires a `.env` file for Docker Compose. After cloning, copy the provided template:
+Copy the provided template and fill in required values:
 
 ```bash
 cp .env.example .env
+# Edit .env — set WEBHOOK_SECRET, ANTHROPIC_AUTH_TOKEN, GITHUB_PAT
 ```
 
-Then edit `.env` and fill in the required values (`WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`). The defaults work for local development.
+For native development, run `make native-setup` (or `./scripts/setup-native.sh`) — it bootstraps `.env` with native-friendly defaults, creates `data/` and `logs/` directories, installs the Claude Code skill config to `~/.claude/`, and builds the binary.
 
-### Running Go Tooling
+### Running Go Tooling (Native — Primary)
 
-> **All Go tooling (build, test, lint) must run inside the Docker container.** Host machines do not have Go installed.
+Requires Go 1.23+ and Claude Code CLI installed locally. These commands run directly on the host:
+
+```bash
+make native-setup        # First-time setup: dirs, .env defaults, build
+make native-build        # Build binary to ./bin/nano-review
+make native-run          # Build and run (loads .env)
+make native-dev          # Run with auto-rebuild via air
+make native-test         # go test -race ./...
+make native-test-cover   # Test + HTML coverage report
+make native-lint         # go vet + go fmt
+make native-clean        # Remove bin/, data/, logs/
+```
+
+Or use the bare `make` targets (`test`, `test-cover`, `lint`, `fmt`) which also run natively.
+
+### Running Go Tooling (Docker — Alternative)
 
 > **Important — Multi-stage build:** The Dockerfile uses a multi-stage build. The final runtime image (Stage 2) does **not** contain the Go toolchain — only the compiled binary, `git`, `curl`, and Claude Code CLI. This means `docker compose exec nano-review go ...` will **fail** against the running container. Go commands must target the **builder stage** instead, using `docker compose run` with the build target:
 
@@ -104,6 +120,10 @@ tests/integration/                # Integration tests (build tag: integration)
 config/.claude/                   # Production Claude Code configuration copied into Docker image
   skills/pr-review/SKILL.md       # The /pr-review skill for PR code review
   settings.json                   # Telemetry env vars (MCP configured dynamically at runtime)
+
+scripts/                           # Native development helper scripts
+  setup-native.sh                  # First-time native setup: dirs, .env, config install, build
+  run-native.sh                    # Load .env and exec ./bin/nano-review
 ```
 
 ### Key Interfaces
@@ -141,7 +161,10 @@ Required: `WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`
 Claude Code Configuration:
 `PORT` (8080), `CLAUDE_CODE_PATH` (auto-detected), `CLAUDE_MODEL`, `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `MAX_REVIEW_DURATION` (600s), `MAX_RETRIES` (2)
 
-Database: `DATABASE_PATH` (`/app/data/reviews.db`)
+Database: `DATABASE_PATH` (`/app/data/reviews.db` in Docker, `./data/reviews.db` native)
+
+Native Paths:
+`NANO_DATA_DIR` (`./data`) — base dir for database and storage, `NANO_LOG_DIR` (`./logs`) — base dir for logs. Both default to `/app/data` and `/app/logs` respectively inside Docker.
 
 Authentication & Sessions:
 `AUTH_ENABLED` (true), `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `SESSION_SECRET` (falls back to WEBHOOK_SECRET), `GOOGLE_OAUTH_REDIRECT_URI`, `SESSION_MAX_AGE` (Go duration), `SESSION_MAX_AGE_HOURS` (24), `SECURE_COOKIES` (true), `AUTH_COOKIE_DOMAIN`, `ALLOWED_EMAIL_DOMAINS` (comma-separated), `SESSION_CLEANUP_INTERVAL` (1h)
@@ -162,6 +185,7 @@ Data volume: `review-data:/app/data` for SQLite database (review history).
 - Standard library `net/http` only — no router framework (Go 1.22+ enhanced ServeMux)
 - No `pkg/` directory — all project code in `internal/`
 - Ephemeral execution: every review gets a fresh `/tmp/<run-id>`, force-deleted via `defer os.RemoveAll`
+- Native execution support via `NANO_DATA_DIR` and `NANO_LOG_DIR` — paths default to `./data` and `./logs` on host, `/app/data` and `/app/logs` in Docker
 - Webhook auth via `X-Webhook-Secret` header comparison
 - **TWO separate `.claude/` directories exist** — do NOT confuse them:
   - `.claude/` (project root) — Development-only rules for AI agents working on this codebase (Go style, testing, git workflow). Never copied into Docker.
