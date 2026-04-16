@@ -7,6 +7,7 @@
     <img src="https://img.shields.io/badge/License-GPL--3.0-0c7bda" alt="GPL-3.0">
     <img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white" alt="Docker Ready">
     <img src="https://github.com/kmmuntasir/nano-review/actions/workflows/ci.yml/badge.svg" alt="CI">
+    <img src="https://img.shields.io/badge/coverage-67.2%25-yellow" alt="Coverage 67.2%">
   </p>
   <p align="center">Automated AI-driven PR code review via Claude Code, running in an isolated Docker container.</p>
 </p>
