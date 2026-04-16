@@ -13,8 +13,14 @@ import (
 // ErrNotFound is returned when a review record does not exist.
 var ErrNotFound = errors.New("review not found")
 
-// DefaultDatabasePath is the default location for the SQLite database file.
-const DefaultDatabasePath = "/app/data/reviews.db"
+// defaultDatabasePath returns the default location for the SQLite database file.
+// It checks NANO_DATA_DIR env var; if set, returns <NANO_DATA_DIR>/reviews.db.
+func defaultDatabasePath() string {
+	if dir := os.Getenv("NANO_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "reviews.db")
+	}
+	return "/app/data/reviews.db"
+}
 
 type sqliteStore struct {
 	db *sql.DB
@@ -22,10 +28,10 @@ type sqliteStore struct {
 
 // Open creates (or opens) the SQLite database at the given path,
 // runs schema migrations, and returns a *sqliteStore.
-// If dbPath is empty, DefaultDatabasePath is used.
+// If dbPath is empty, defaultDatabasePath() is used.
 func Open(dbPath string) (*sqliteStore, error) {
 	if dbPath == "" {
-		dbPath = DefaultDatabasePath
+		dbPath = defaultDatabasePath()
 	}
 
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {

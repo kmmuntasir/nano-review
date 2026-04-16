@@ -371,7 +371,7 @@ func TestOpen_CreatesDirectory(t *testing.T) {
 }
 
 func TestOpen_DefaultPath(t *testing.T) {
-	// Pass empty string — should use DefaultDatabasePath.
+	// Pass empty string — should use defaultDatabasePath().
 	// We can't actually write to /app/data in tests, so we just verify
 	// that it fails with the expected path-related error, not a parse error.
 	store, err := Open("")
