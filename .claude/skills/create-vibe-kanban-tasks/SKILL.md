@@ -32,7 +32,8 @@ Call these MCP tools in sequence:
 2. `list_organizations` result → take the first (or only) org's `id`
 3. `list_projects` with `organization_id` set to that org ID
 4. Find the project whose name matches the user-specified project name (case-insensitive match)
-5. Save the `project_id` for all subsequent calls
+5. `list_repos` — get all available repositories
+6. Save all three IDs (`org_id`, `project_id`, and the full repo list) for subsequent calls and the final report
 
 If the project is not found, stop and tell the user which projects are available. Do not guess.
 
@@ -144,17 +145,36 @@ The status name must match exactly what the project uses. If unsure, create the 
 
 ### Step 7: Final report
 
-After all tasks are created and dependencies linked, report:
+After all tasks are created and dependencies linked, report a summary with all IDs needed for follow-up actions. The user should be able to copy these IDs directly for use with other Vibe Kanban tools (update_issue, assign_issue, start_workspace, etc.) without re-discovering them.
 
 ```
-Done. Created N tasks in project "<project-name>":
-- Task 1: <title>
-- Task 2: <title>
-- ...
-- Task N: <title>
+Done. Created N tasks in project "<project-name>".
+
+Context IDs:
+  Organization: <org_name> (<org_id>)
+  Project:      <project_name> (<project_id>)
+
+Repositories:
+  <repo_name> (<repo_id>)
+  <repo_name> (<repo_id>)
+  ...
+
+Tasks:
+  #   Title                           Issue ID (UUID)
+  ─── ─────────────────────────────── ──────────────────────────────────────
+  1   Task 1: <title>                 <issue_1_uuid>
+  2   Task 2: <title>                 <issue_2_uuid>
+  ...
+  N   Task N: <title>                 <issue_n_uuid>
 
 Dependencies linked: X relationships
 ```
+
+**Important:** Include ALL of the following in the final report — the user needs these for any subsequent Vibe Kanban operations (update_issue, assign_issue, start_workspace, etc.) and should not need to re-discover them:
+- Organization ID and name (from Step 2)
+- Project ID and name (from Step 2)
+- All repository IDs and names (from Step 2)
+- Full UUID for every created issue (from Step 4)
 
 ## Error Handling
 
