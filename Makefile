@@ -2,6 +2,7 @@
        stage stage-logs stage-down stage-restart stage-build \
        prod prod-logs prod-down prod-restart prod-build \
        test lint fmt \
+       native-setup native-build native-run native-dev native-clean native-test native-test-cover native-lint \
        clean help
 
 # ---------------------------------------------------------------------------
@@ -88,6 +89,38 @@ fmt:
 	go fmt ./...
 
 # ---------------------------------------------------------------------------
+# Native (no Docker)
+# ---------------------------------------------------------------------------
+NATIVE_BIN := ./bin/nano-review
+
+native-setup: ## First-time native dev setup
+	@bash scripts/setup-native.sh
+
+native-build: ## Build binary locally
+	@mkdir -p bin
+	CGO_ENABLED=0 go build -o $(NATIVE_BIN) ./cmd/server
+
+native-run: native-build ## Build and run natively
+	@bash scripts/run-native.sh
+
+native-dev: ## Run natively with auto-rebuild (requires air)
+	@which air > /dev/null 2>&1 || (echo "Install air: go install github.com/air-verse/air@latest" && exit 1)
+	air -c .air.toml
+
+native-clean: ## Remove native build artifacts
+	rm -rf bin/ data/ logs/
+
+native-test: ## Run tests natively
+	go test -race ./...
+
+native-test-cover: ## Run tests with coverage natively
+	go test -race -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
+
+native-lint: ## Lint natively
+	go vet ./...
+	go fmt ./...
+
+# ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
 clean:
@@ -126,6 +159,16 @@ help: ## Show this help
 	@echo "    test-cover      Run tests with HTML coverage report"
 	@echo "    lint            Vet and format code"
 	@echo "    fmt             Format code"
+	@echo ""
+	@echo "  Native commands:"
+	@echo "    native-setup    First-time native dev setup"
+	@echo "    native-build    Build binary locally"
+	@echo "    native-run      Build and run natively"
+	@echo "    native-dev      Run with auto-rebuild (requires air)"
+	@echo "    native-clean    Remove native build artifacts"
+	@echo "    native-test     Run tests natively"
+	@echo "    native-test-cover  Run tests with coverage natively"
+	@echo "    native-lint     Lint natively"
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    clean           Remove containers, volumes, and local images"
