@@ -135,12 +135,20 @@ func TestCallback_CookieAttributes(t *testing.T) {
 	}
 
 	cookies := resp.Cookies()
-	if len(cookies) != 2 {
-		t.Fatalf("expected 2 cookies, got %d", len(cookies))
+	// Filter out the cleared oauth_state cookie — we only care about the
+	// two session cookies set by the callback.
+	var sessionCookies []*http.Cookie
+	for _, c := range cookies {
+		if c.Name != "nano_oauth_state" {
+			sessionCookies = append(sessionCookies, c)
+		}
+	}
+	if len(sessionCookies) != 2 {
+		t.Fatalf("expected 2 session cookies, got %d", len(sessionCookies))
 	}
 
 	var sessionCookie, tokenCookie *http.Cookie
-	for _, c := range cookies {
+	for _, c := range sessionCookies {
 		switch c.Name {
 		case "nano_session":
 			sessionCookie = c

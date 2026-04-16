@@ -265,10 +265,8 @@ func HandleLogout(sm *SessionManager) http.HandlerFunc {
 }
 
 // HandleSessionInfo returns session info as JSON.
-// This is a public endpoint that handles three cases:
-//   - Auth disabled: returns {"auth_enabled":false}
-//   - No valid token: returns {}
-//   - Valid token: returns {id, email, name, picture}
+// When wrapped by RequireAuth middleware, uses the User from context (includes
+// source). Falls back to manual cookie parsing for unprotected access.
 func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -283,6 +281,20 @@ func HandleSessionInfo(sm *SessionManager) http.HandlerFunc {
 			return
 		}
 
+		// If RequireAuth middleware already validated the token, use the User
+		// from context (includes source information).
+		if user := UserFromContext(r.Context()); user.ID != "" {
+			_ = json.NewEncoder(w).Encode(map[string]string{
+				"id":      user.ID,
+				"source":  user.Source,
+				"email":   user.Email,
+				"name":    user.Name,
+				"picture": user.PictureURL,
+			})
+			return
+		}
+
+		// Fallback: manual cookie/token parsing for unprotected access.
 		tokenValue := ""
 		if cookie, err := r.Cookie(cookieName); err == nil {
 			tokenValue = cookie.Value
