@@ -29,7 +29,7 @@
 #    flag is satisfied as long as the browser sees HTTPS at the edge.
 #
 # 4. Monitoring:
-#    - Healthcheck endpoint: GET /review (returns 405 Method Not Allowed)
+#    - Healthcheck endpoint: GET /healthz (returns 200 OK)
 #    - Logs volume: review-logs:/app/logs (rotated JSON logs)
 #    - Data volume: review-data:/app/data (SQLite database)
 #
@@ -115,12 +115,12 @@ services:
     # ---------------------------------------------------------------------------
     # HEALTHCHECK
     # ---------------------------------------------------------------------------
-    # Probes the /review endpoint every 30s.
-    # Expected: 405 Method Not Allowed (endpoint exists, wrong method)
+    # Probes the /healthz endpoint every 30s.
+    # Expected: 200 OK
     # Container restarts after 3 consecutive failures.
     # ---------------------------------------------------------------------------
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/review"]
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 5s
       retries: 3
