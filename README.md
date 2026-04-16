@@ -109,20 +109,61 @@ Full API documentation: [docs/api-documentation.md](docs/api-documentation.md)
 
 ## Configuration
 
-Key environment variables (see [`.env.example`](.env.example) for the full list):
+All configuration via environment variables. Copy [`.env.example`](.env.example) and fill in the required values.
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `WEBHOOK_SECRET` | Yes | -- | Shared secret for webhook authentication |
-| `ANTHROPIC_AUTH_TOKEN` | Yes | -- | Auth token for Claude Code CLI |
-| `GITHUB_PAT` | Yes | -- | GitHub PAT with `repo` scope (clone + MCP) |
-| `PORT` | No | `8080` | Server listen port |
-| `CLAUDE_CODE_PATH` | No | auto-detected | Path to the Claude Code binary |
-| `CLAUDE_MODEL` | No | `sonnet` | Claude model for reviews (`haiku`, `sonnet`, `opus`) |
-| `MAX_REVIEW_DURATION` | No | `600` | Maximum review duration in seconds |
-| `MAX_RETRIES` | No | `2` | Retry attempts for transient failures |
-| `AUTH_ENABLED` | No | `true` | Enable Google OAuth for the dashboard |
-| `DATABASE_PATH` | No | `/app/data/reviews.db` | SQLite database file path |
+### Required
+
+| Variable | Description |
+|----------|-------------|
+| `WEBHOOK_SECRET` | Shared secret for webhook authentication |
+| `ANTHROPIC_AUTH_TOKEN` | Auth token for Claude Code CLI |
+| `GITHUB_PAT` | GitHub PAT with `repo` scope (clone + MCP) |
+
+### Server
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Server listen port |
+| `DATABASE_PATH` | `/app/data/reviews.db` | SQLite database file path |
+| `WS_ALLOWED_ORIGINS` | *(all origins)* | Comma-separated allowed WebSocket origins (supports `https://*.example.com` wildcards) |
+
+### Review Worker
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_CODE_PATH` | auto-detected | Path to the Claude Code binary |
+| `CLAUDE_MODEL` | `sonnet` | Claude model for reviews (`haiku`, `sonnet`, `opus`) |
+| `MAX_REVIEW_DURATION` | `600` | Maximum review duration in seconds |
+| `MAX_RETRIES` | `2` | Retry attempts for transient failures |
+
+### Claude API
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ANTHROPIC_BASE_URL` | -- | Custom API endpoint (e.g., proxy) |
+| `API_TIMEOUT_MS` | -- | Claude API timeout in milliseconds |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | -- | Override default haiku model name |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | -- | Override default sonnet model name |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | -- | Override default opus model name |
+| `CLAUDE_CODE_DISABLE_1M_CONTEXT` | -- | Set to `true` to disable 1M context window |
+| `DISABLE_TELEMETRY` | -- | Set to `true` to disable Claude telemetry |
+| `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` | -- | Set to `true` to reduce background network calls |
+
+### Authentication
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_ENABLED` | `true` | Set to `false` to disable OAuth (dashboard open to all) |
+| `GOOGLE_CLIENT_ID` | -- | Google OAuth 2.0 client ID *(required when auth enabled)* |
+| `GOOGLE_CLIENT_SECRET` | -- | Google OAuth 2.0 client secret *(required when auth enabled)* |
+| `GOOGLE_OAUTH_REDIRECT_URI` | -- | OAuth callback URL *(required when auth enabled)* |
+| `SESSION_SECRET` | falls back to `WEBHOOK_SECRET` | Session signing key (>= 32 chars recommended) |
+| `SESSION_MAX_AGE` | `168h` | Session cookie max-age (Go duration format) |
+| `SESSION_MAX_AGE_HOURS` | `24` | Server-side session lifetime in hours |
+| `SESSION_CLEANUP_INTERVAL` | `1h` | Expired session cleanup interval (Go duration format) |
+| `SECURE_COOKIES` | `true` | Set `Secure` flag on session cookies |
+| `AUTH_COOKIE_DOMAIN` | -- | Cookie domain restriction |
+| `ALLOWED_EMAIL_DOMAINS` | -- | Comma-separated allowed email domains (e.g., `company.com`) |
 
 ## Development
 
