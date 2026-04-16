@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -156,10 +157,23 @@ func (c *claudeCLI) RunStreaming(ctx context.Context, dir string, streamWriter i
 	return exitCode, nil
 }
 
-// claudeMCPConfigPath is the path to the MCP config file passed to Claude Code
-// via --mcp-config. Using a dedicated file with --strict-mcp-config prevents
-// project-level .mcp.json files in cloned repos from overriding our GitHub MCP.
-const claudeMCPConfigPath = "/app/mcp-config.json"
+// resolveMCPConfigPath returns the path for the Claude Code MCP config file.
+// Override with NANO_DATA_DIR, defaults to /app/mcp-config.json.
+func resolveMCPConfigPath() string {
+	if dir := os.Getenv("NANO_DATA_DIR"); dir != "" {
+		return filepath.Join(dir, "mcp-config.json")
+	}
+	return "/app/mcp-config.json"
+}
+
+// resolveLogPath returns the full path for a log file.
+// Override with NANO_LOG_DIR, defaults to /app/logs/<filename>.
+func resolveLogPath(filename string) string {
+	if dir := os.Getenv("NANO_LOG_DIR"); dir != "" {
+		return filepath.Join(dir, filename)
+	}
+	return filepath.Join("/app/logs", filename)
+}
 
 // configureClaudeMCP writes a dedicated MCP config file with the GitHub Copilot
 // MCP server using GITHUB_PAT for authentication. This file is passed to Claude
@@ -224,7 +238,7 @@ func main() {
 		port = "8080"
 	}
 
-	logger, err := reviewer.NewLogger("/app/logs/review.log")
+	logger, err := reviewer.NewLogger(resolveLogPath("review.log"))
 	if err != nil {
 		slog.Error("failed to initialize logger", "error", err)
 		os.Exit(1)
@@ -259,7 +273,7 @@ func main() {
 		}
 	}
 
-	mcpConfigPath := configureClaudeMCP(claudeMCPConfigPath)
+	mcpConfigPath := configureClaudeMCP(resolveMCPConfigPath())
 
 	dbPath := os.Getenv("DATABASE_PATH")
 	store, err := storage.Open(dbPath)
