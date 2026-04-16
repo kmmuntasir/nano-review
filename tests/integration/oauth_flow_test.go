@@ -104,10 +104,21 @@ func TestCallback_CookieAttributes(t *testing.T) {
 	srv := newIntegrationServer(t)
 	defer srv.Close()
 
-	// Use a non-redirecting client to inspect the Set-Cookie headers directly.
-	client := newNoFollowClient(t)
+	// Perform OAuth login to obtain a valid CSRF state and oauth_state cookie.
+	state, loginClient := performOAuthLogin(t, srv)
 
-	resp, err := client.Get(srv.baseURL + "/auth/callback?code=fake-auth-code")
+	// Use a non-redirecting client with the same cookie jar so the CSRF state
+	// cookie is sent with the callback request, and we can inspect Set-Cookie
+	// headers directly on the 302 response.
+	client := &http.Client{
+		Jar:       loginClient.Jar,
+		Transport: loginClient.Transport,
+		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := client.Get(srv.baseURL + "/auth/callback?code=fake-auth-code&state=" + state)
 	if err != nil {
 		t.Fatalf("callback request failed: %v", err)
 	}
