@@ -193,3 +193,21 @@ func TestResolveLogPath_CustomDir(t *testing.T) {
 		t.Errorf("resolveLogPath() = %q, want %q", got, want)
 	}
 }
+
+func TestResolveReviewOutputDir_Default(t *testing.T) {
+	t.Setenv("NANO_LOG_DIR", "")
+	got := resolveReviewOutputDir()
+	want := "/app/logs/reviews"
+	if got != want {
+		t.Errorf("resolveReviewOutputDir() = %q, want %q", got, want)
+	}
+}
+
+func TestResolveReviewOutputDir_CustomDir(t *testing.T) {
+	t.Setenv("NANO_LOG_DIR", "/tmp/logs")
+	got := resolveReviewOutputDir()
+	want := filepath.Join("/tmp/logs", "reviews")
+	if got != want {
+		t.Errorf("resolveReviewOutputDir() = %q, want %q", got, want)
+	}
+}

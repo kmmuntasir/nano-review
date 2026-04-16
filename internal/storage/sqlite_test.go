@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -385,6 +386,23 @@ func TestOpen_DefaultPath(t *testing.T) {
 		if !isPermissionOrPathError(err) {
 			t.Fatalf("unexpected error type: %v", err)
 		}
+	}
+}
+
+func TestOpen_NanoDataDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("NANO_DATA_DIR", dir)
+
+	store, err := Open("")
+	if err != nil {
+		t.Fatalf("Open with NANO_DATA_DIR failed: %v", err)
+	}
+	defer store.Close()
+
+	// Verify the database file was created in the custom directory.
+	dbFile := filepath.Join(dir, "reviews.db")
+	if _, err := os.Stat(dbFile); err != nil {
+		t.Errorf("expected database file at %s: %v", dbFile, err)
 	}
 }
 
