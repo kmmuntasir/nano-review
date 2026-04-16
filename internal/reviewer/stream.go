@@ -52,9 +52,9 @@ func (a *streamAccumulator) Text() string {
 // wsStreamWriter wraps a streamAccumulator and broadcasts each write to
 // WebSocket subscribers on the topic "run:<runID>".
 type wsStreamWriter struct {
-	accum      *streamAccumulator
+	accum       *streamAccumulator
 	broadcaster Broadcaster
-	runID      string
+	runID       string
 }
 
 func newWSStreamWriter(accum *streamAccumulator, broadcaster Broadcaster, runID string) *wsStreamWriter {

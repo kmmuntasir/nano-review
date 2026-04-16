@@ -437,9 +437,9 @@ func TestOriginChecker_MixedExactAndWildcard(t *testing.T) {
 
 func TestOriginMatchesWildcardDomain(t *testing.T) {
 	tests := []struct {
-		origin        string
+		origin         string
 		wildcardDomain string
-		want          bool
+		want           bool
 	}{
 		{"https://sub.example.com", "example.com", true},
 		{"https://example.com", "example.com", true},

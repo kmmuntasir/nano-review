@@ -355,9 +355,9 @@ func main() {
 	sessionMgr := auth.NewSessionManager([]byte(sessionSecret), maxAgeHours, cookieDomains)
 
 	oauthCfg := &auth.OAuthConfig{
-		ClientID:     os.Getenv("GOOGLE_CLIENT_ID"),
-		ClientSecret: os.Getenv("GOOGLE_CLIENT_SECRET"),
-		RedirectURL:  os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"),
+		ClientID:       os.Getenv("GOOGLE_CLIENT_ID"),
+		ClientSecret:   os.Getenv("GOOGLE_CLIENT_SECRET"),
+		RedirectURL:    os.Getenv("GOOGLE_OAUTH_REDIRECT_URI"),
 		SessionManager: sessionMgr,
 	}
 

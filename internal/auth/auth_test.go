@@ -766,7 +766,7 @@ func TestNewSessionManagerRejectsShortSecret(t *testing.T) {
 
 func TestNewSessionManagerRejectsShortSecretFromEnv(t *testing.T) {
 	tests := []struct {
-		name string
+		name   string
 		secret string
 	}{
 		{name: "empty secret", secret: ""},
@@ -796,11 +796,11 @@ func TestNewSessionManagerRejectsShortSecretFromEnv(t *testing.T) {
 
 func TestNewSessionManagerRejectsMissingEnvVars(t *testing.T) {
 	tests := []struct {
-		name             string
-		authEnabled      string
-		clientID         string
-		clientSecret     string
-		wantOAuthReady   bool
+		name           string
+		authEnabled    string
+		clientID       string
+		clientSecret   string
+		wantOAuthReady bool
 	}{
 		{
 			name:           "AUTH_ENABLED true with missing GOOGLE_CLIENT_ID",

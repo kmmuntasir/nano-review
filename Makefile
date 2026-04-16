@@ -82,7 +82,7 @@ test-cover:
 	go test -race -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
 
 lint:
-	go vet ./...
+	golangci-lint run ./...
 	go fmt ./...
 
 fmt:
@@ -117,7 +117,7 @@ native-test-cover: ## Run tests with coverage natively
 	go test -race -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html
 
 native-lint: ## Lint natively
-	go vet ./...
+	golangci-lint run ./...
 	go fmt ./...
 
 # ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ help: ## Show this help
 	@echo "  Local development:"
 	@echo "    test            Run tests with race detector"
 	@echo "    test-cover      Run tests with HTML coverage report"
-	@echo "    lint            Vet and format code"
+	@echo "    lint            golangci-lint and format code"
 	@echo "    fmt             Format code"
 	@echo ""
 	@echo "  Native commands:"

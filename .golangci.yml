@@ -10,8 +10,9 @@ linters:
     - staticcheck
     - unused
     - ineffassign
-  settings:
-    govet:
-      enable-all: true
-      disable:
-        - fieldalignment  # noisy for MVP
+
+linters-settings:
+  govet:
+    enable-all: true
+    disable:
+      - fieldalignment  # noisy for MVP

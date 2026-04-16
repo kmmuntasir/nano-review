@@ -17,9 +17,9 @@ import (
 
 func TestHandleGoogleLogin_MethodNotAllowed(t *testing.T) {
 	cfg := &OAuthConfig{
-		ClientID:     "test-id",
-		ClientSecret: "test-secret",
-		RedirectURL:  "http://localhost:8080/auth/callback",
+		ClientID:       "test-id",
+		ClientSecret:   "test-secret",
+		RedirectURL:    "http://localhost:8080/auth/callback",
 		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 	}
 
@@ -54,9 +54,9 @@ func TestHandleGoogleLogin_OAuthNotConfigured(t *testing.T) {
 
 func TestHandleGoogleLogin_RedirectsToGoogle(t *testing.T) {
 	cfg := &OAuthConfig{
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		RedirectURL:  "http://localhost:8080/auth/callback",
+		ClientID:       "test-client-id",
+		ClientSecret:   "test-client-secret",
+		RedirectURL:    "http://localhost:8080/auth/callback",
 		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 	}
 
@@ -89,9 +89,9 @@ func TestHandleGoogleLogin_RedirectsToGoogle(t *testing.T) {
 
 func TestHandleGoogleLogin_WithState(t *testing.T) {
 	cfg := &OAuthConfig{
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		RedirectURL:  "http://localhost:8080/auth/callback",
+		ClientID:       "test-client-id",
+		ClientSecret:   "test-client-secret",
+		RedirectURL:    "http://localhost:8080/auth/callback",
 		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 	}
 
@@ -138,29 +138,29 @@ func TestHandleGoogleLogin_WithState(t *testing.T) {
 
 func TestOAuthEndpoint_NilWhenUnconfigured(t *testing.T) {
 	tests := []struct {
-		name  string
-		cfg   OAuthConfig
-		want  bool
+		name string
+		cfg  OAuthConfig
+		want bool
 	}{
 		{
-			name:  "both empty",
-			cfg:   OAuthConfig{},
-			want:  false,
+			name: "both empty",
+			cfg:  OAuthConfig{},
+			want: false,
 		},
 		{
-			name:  "only client ID",
-			cfg:   OAuthConfig{ClientID: "id"},
-			want:  false,
+			name: "only client ID",
+			cfg:  OAuthConfig{ClientID: "id"},
+			want: false,
 		},
 		{
-			name:  "only client secret",
-			cfg:   OAuthConfig{ClientSecret: "secret"},
-			want:  false,
+			name: "only client secret",
+			cfg:  OAuthConfig{ClientSecret: "secret"},
+			want: false,
 		},
 		{
-			name:  "both set",
-			cfg:   OAuthConfig{ClientID: "id", ClientSecret: "secret", RedirectURL: "http://localhost/cb"},
-			want:  true,
+			name: "both set",
+			cfg:  OAuthConfig{ClientID: "id", ClientSecret: "secret", RedirectURL: "http://localhost/cb"},
+			want: true,
 		},
 	}
 
@@ -176,10 +176,10 @@ func TestOAuthEndpoint_NilWhenUnconfigured(t *testing.T) {
 
 func TestIsEmailAllowed(t *testing.T) {
 	tests := []struct {
-		name            string
-		email           string
-		allowedDomains  []string
-		want            bool
+		name           string
+		email          string
+		allowedDomains []string
+		want           bool
 	}{
 		{
 			name:           "empty allowed list allows all",
@@ -314,9 +314,9 @@ func TestIsEmailAllowedNilListAllowsAll(t *testing.T) {
 func TestOAuthStateCSRF(t *testing.T) {
 	t.Run("state cookie is set on login", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-client-id",
-			ClientSecret: "test-client-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-client-id",
+			ClientSecret:   "test-client-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -351,9 +351,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 
 	t.Run("state cookie uses Secure flag from SessionManager", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-client-id",
-			ClientSecret: "test-client-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-client-id",
+			ClientSecret:   "test-client-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -379,9 +379,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 
 	t.Run("callback rejects missing state param", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-id",
-			ClientSecret: "test-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-id",
+			ClientSecret:   "test-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -400,9 +400,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 
 	t.Run("callback rejects missing state cookie", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-id",
-			ClientSecret: "test-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-id",
+			ClientSecret:   "test-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -421,9 +421,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 
 	t.Run("callback rejects mismatched state", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-id",
-			ClientSecret: "test-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-id",
+			ClientSecret:   "test-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -443,9 +443,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 
 	t.Run("callback clears state cookie after verification", func(t *testing.T) {
 		cfg := &OAuthConfig{
-			ClientID:     "test-id",
-			ClientSecret: "test-secret",
-			RedirectURL:  "http://localhost:8080/auth/callback",
+			ClientID:       "test-id",
+			ClientSecret:   "test-secret",
+			RedirectURL:    "http://localhost:8080/auth/callback",
 			SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 		}
 
@@ -490,9 +490,9 @@ func TestOAuthStateCSRF(t *testing.T) {
 // SessionManager. Override individual fields as needed.
 func testOAuthConfig() *OAuthConfig {
 	return &OAuthConfig{
-		ClientID:     "test-client-id",
-		ClientSecret: "test-client-secret",
-		RedirectURL:  "http://localhost:8080/auth/callback",
+		ClientID:       "test-client-id",
+		ClientSecret:   "test-client-secret",
+		RedirectURL:    "http://localhost:8080/auth/callback",
 		SessionManager: NewSessionManager([]byte(strings.Repeat("x", 32)), 24, nil),
 	}
 }
@@ -553,7 +553,7 @@ type mockRoundTripper struct {
 
 func newMockRoundTripper() *mockRoundTripper {
 	return &mockRoundTripper{
-		TokenResponse:    `{"access_token":"mock-access-token","token_type":"Bearer","expires_in":3600}`,
+		TokenResponse: `{"access_token":"mock-access-token","token_type":"Bearer","expires_in":3600}`,
 		UserInfoResponse: func() string {
 			info := defaultTestUserInfo()
 			b, _ := json.Marshal(info)
@@ -1769,8 +1769,8 @@ func TestHandleSessionInfoContentType(t *testing.T) {
 	handler := HandleSessionInfo(sm)
 
 	tests := []struct {
-		name    string
-		setup   func(*http.Request)
+		name  string
+		setup func(*http.Request)
 	}{
 		{"unauthenticated GET", func(r *http.Request) {}},
 		{"authenticated GET", func(r *http.Request) {

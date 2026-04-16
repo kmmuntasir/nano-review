@@ -122,11 +122,11 @@ func TestGetSession(t *testing.T) {
 	})
 
 	tests := []struct {
-		name      string
-		id        string
-		wantErr   error
-		wantID    string
-		wantName  string
+		name     string
+		id       string
+		wantErr  error
+		wantID   string
+		wantName string
 	}{
 		{
 			name:     "existing session",
@@ -235,10 +235,10 @@ func TestUpdateSession(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 
 	tests := []struct {
-		name           string
-		status         SessionStatus
-		contextData    string
-		wantCompleted  bool
+		name          string
+		status        SessionStatus
+		contextData   string
+		wantCompleted bool
 	}{
 		{name: "completed sets completed_at", status: SessionStatusCompleted, contextData: `{"output":"done"}`, wantCompleted: true},
 		{name: "failed sets completed_at", status: SessionStatusFailed, contextData: "error details", wantCompleted: true},

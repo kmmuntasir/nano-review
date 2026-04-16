@@ -21,15 +21,15 @@ const (
 type SessionExecutor string
 
 const (
-	ExecutorClaudeCode SessionExecutor = "claude_code"
-	ExecutorAMP        SessionExecutor = "amp"
-	ExecutorGemini     SessionExecutor = "gemini"
-	ExecutorCodex      SessionExecutor = "codex"
-	ExecutorOpenCode   SessionExecutor = "opencode"
+	ExecutorClaudeCode  SessionExecutor = "claude_code"
+	ExecutorAMP         SessionExecutor = "amp"
+	ExecutorGemini      SessionExecutor = "gemini"
+	ExecutorCodex       SessionExecutor = "codex"
+	ExecutorOpenCode    SessionExecutor = "opencode"
 	ExecutorCursorAgent SessionExecutor = "cursor_agent"
-	ExecutorQwenCode   SessionExecutor = "qwen_code"
-	ExecutorCopilot    SessionExecutor = "copilot"
-	ExecutorDroid      SessionExecutor = "droid"
+	ExecutorQwenCode    SessionExecutor = "qwen_code"
+	ExecutorCopilot     SessionExecutor = "copilot"
+	ExecutorDroid       SessionExecutor = "droid"
 )
 
 // SessionRecord represents a persisted orchestrator session for rehydration.

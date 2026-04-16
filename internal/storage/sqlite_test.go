@@ -397,7 +397,7 @@ func TestOpen_NanoDataDir(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open with NANO_DATA_DIR failed: %v", err)
 	}
-	defer store.Close()
+	defer func() { _ = store.Close() }()
 
 	// Verify the database file was created in the custom directory.
 	dbFile := filepath.Join(dir, "reviews.db")
