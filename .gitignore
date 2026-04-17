@@ -50,3 +50,6 @@ data/
 # AI generated docs (keep README.md)
 docs/ai_generated/*
 !docs/ai_generated/README.md
+
+# Orchestration state (ephemeral)
+.claude/orchestration-state.json
