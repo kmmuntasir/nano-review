@@ -224,10 +224,6 @@ For each issue where status is "running":
       2. Send merge prompt via `run_session_prompt(session_id=<merge_session_id>, prompt=the MERGE PREPARATION prompt text below)` → get `merge_execution_id`
       3. Set issue status to "merging" in state
       4. Save merge_session_id and merge_execution_id in state
-   d. After successful merge (see Step 2):
-      - Call `update_issue(issue_id=<id>, status="Done")`
-      - Call `update_workspace(workspace_id=<id>, archived=true)`
-      - Set issue status to "done" in state file
 4. If workspace FAILED:
    - Set issue status to "failed" in state file, record error
 
