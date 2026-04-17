@@ -13,6 +13,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Implementation complete. The codebase includes 34 Go source files, a web dashboard with WebSocket streaming, Google OAuth authentication, SQLite storage with WAL mode, and integration tests. Documentation in `docs/PRD.md` may lag behind the implementation — when in doubt, the code is authoritative.
 
+## Vibe Kanban MCP — Required Pre-Read
+
+**Before using ANY Vibe Kanban MCP tool**, the agent MUST read `project-metadata.local.md` first. This gitignored file contains the organization ID, repository ID, project ID, and column definitions needed for all MCP operations. Operating without these IDs will fail or hit wrong resources.
+
+Read it. Use the IDs. Always.
+
 ## Build & Development Commands
 
 ### First-Time Setup

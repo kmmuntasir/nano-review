@@ -53,3 +53,6 @@ docs/ai_generated/*
 
 # Orchestration state (ephemeral)
 .claude/orchestration-state.json
+
+# Local project metadata
+project-metadata.local.md
