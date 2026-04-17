@@ -409,7 +409,7 @@ To stop orchestration:
 | `start_workspace` fails | Mark "failed", continue with others |
 | `run_session_prompt` merge fails | Retry up to 3 cycles with new session, then mark "failed" |
 | Rebase conflict detected | Abort rebase, send conflict resolution prompt via new `run_session_prompt`, do NOT count as merge attempt |
-| Conflict resolution fails (workspace AI can't resolve) | Increment merge_attempts, retry up to 3 cycles total, then mark "failed" |
+| Conflict resolution fails (workspace AI can't resolve) | Do NOT increment merge_attempts — retry with fresh merge attempt (which increments), up to 3 total merge_attempts |
 | `get_execution` returns error | Retry next cycle, count toward merge_attempts |
 | State file missing | Stop immediately (orchestration cancelled) |
 | Unresolvable simple ID | Report, exclude from orchestration |
