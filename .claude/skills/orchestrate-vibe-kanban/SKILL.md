@@ -166,6 +166,8 @@ Never write directly to the state file. Always write to the `.tmp` file first, t
       "merge_execution_id": null,
       "merge_attempts": 0,
       "conflict_resolution": false,
+      "conflict_resolution_attempts": 0,
+      "rebase_retry_count": 0,
       "error": null
     }
   }
@@ -213,12 +215,13 @@ For each issue where status is "running":
    - Sessions still running → SKIP, check again next cycle
 3. If workspace is DONE:
    a. Check if workspace branch has changes:
-      - Run: `git diff --quiet main..<branch>` (use `project_dir` from state as cwd)
+      - Run: `git diff --quiet main...<branch>` (use `project_dir` from state as cwd)
+      - Three dots (`...`) compares the merge base to the branch tip, ensuring we only detect unique commits made by the workspace — not commits added to main since the branch was created.
       - Exit code 0 = no changes, 1 = has changes
    b. If NO changes: mark issue "done", call `update_issue(status="Done")`, call `update_workspace(archived=true)`, skip merge
    c. If HAS changes — initiate MCP workspace merge:
       1. Call `create_session(workspace_id=<issue.workspace_id>, name="merge")` → get `merge_session_id`
-      2. Send merge prompt via `run_session_prompt(session_id=<merge_session_id>, prompt=<MERGE_PROMPT>)` → get `merge_execution_id`
+      2. Send merge prompt via `run_session_prompt(session_id=<merge_session_id>, prompt=the MERGE PREPARATION prompt text below)` → get `merge_execution_id`
       3. Set issue status to "merging" in state
       4. Save merge_session_id and merge_execution_id in state
    d. After successful merge (see Step 2):
@@ -236,8 +239,8 @@ For each issue where status is "merging":
    a. Call `get_execution(execution_id=<issue.merge_execution_id>)`
    b. Check execution status:
       - **Running/in-progress** → SKIP, poll again next cycle
-      - **Success/complete** → proceed to step 2.d
       - **Failed/error** → proceed to step 2.c
+      - **Success/complete** → evaluate BOTH the tool execution status AND the semantic execution output text. If the text output explicitly states that the rebase failed, was aborted, or encountered errors, treat it as a FAILURE (proceed to step 2.c). Only proceed to step 2.d if the tool execution succeeded AND the text output confirms a clean, successful rebase.
 2. If no merge_execution_id (fallback — session created but prompt not yet sent):
    a. Retry `run_session_prompt` with the merge prompt
    b. Save merge_execution_id from response
@@ -255,22 +258,33 @@ For each issue where status is "merging":
       - Call `update_issue(issue_id=<id>, status="Done")`
       - Call `update_workspace(workspace_id=<id>, archived=true)`
       - Set issue status to "done" in state file
-   d. If the merge fails (e.g., not fast-forwardable due to diverged history), mark issue "failed" with error and the exact git output for manual review.
+   d. If the merge fails (e.g., not fast-forwardable due to diverged history):
+      - Do NOT mark the issue as "failed". Instead, reset the issue status to "running", clear merge_session_id and merge_execution_id to null, and increment `rebase_retry_count` in the state.
+      - If `rebase_retry_count >= 3`, THEN mark the issue as "failed" with error "merge failed after 3 rebase retries: not fast-forwardable (main advanced)" and the exact git output for manual review.
+      - If `rebase_retry_count < 3`, the next cron cycle will re-trigger the merge flow (Step 1.3.c) and the workspace will rebase onto the updated main again.
    **IMPORTANT**: Do NOT run `git pull`, `git push`, `git fetch`, or any remote git operation. The merge is local-only.
 5. If execution output mentions "conflicts were detected" or "rebase was aborted" (check execution output text):
-   a. Treat same as step 4.c above — send conflict resolution prompt via new session
-   b. Do NOT increment merge_attempts — conflict resolution is a retry, not a failure
+   a. Increment `conflict_resolution_attempts` in state.
+   b. If `conflict_resolution_attempts >= 2`: mark issue "failed" with error "Manual intervention required: unresolvable merge conflicts". Do NOT create another conflict resolution session. STOP for this issue.
+   c. If `conflict_resolution_attempts < 2`:
+      - Create a new session: `create_session(workspace_id=<issue.workspace_id>, name="conflict-resolution")`
+      - Send the CONFLICT_RESOLUTION_PROMPT via `run_session_prompt`
+      - Update `merge_session_id` and `merge_execution_id` in state to the new session's values, keep status "merging", and poll next cycle.
+   d. Do NOT increment merge_attempts — conflict resolution is a retry, not a failure.
 
 ## Step 3: Start newly unblocked tasks
 
-Calculate available slots: `available = MAX_CONCURRENT_WORKSPACES(5) - count of issues with status "running"`.
+Calculate available slots: `available = MAX_CONCURRENT_WORKSPACES(5) - (count of issues with status "running" + count of issues with status "merging")`.
 
 If `available <= 0`, skip this step entirely.
 
 For each issue where status is "pending":
 
-1. Check if ALL issue IDs in its blocked_by list have status "done" in state
-2. If ALL blockers are "done" (or blocked_by is empty) AND slots remain:
+1. Check if ALL issue IDs in its blocked_by list are resolved. For each blocker ID:
+   - If the blocker ID exists in `state.issues`: check if its status is "done".
+   - If the blocker ID is NOT in `state.issues` (external blocker): call `get_issue(issue_id=<blocker_id>)` and check if its current status on the live Kanban board is "Done". Cache the result in state.issues for future cycles.
+   A blocker is resolved only if its status is "done" (internal) or "Done" (live board).
+2. If ALL blockers are resolved (or blocked_by is empty) AND slots remain:
    a. Call `start_workspace`:
       - name: "{simple_id}: {title}"
       - executor: from state
