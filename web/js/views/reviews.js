@@ -107,6 +107,16 @@ function updateReviewsPageTable() {
         html += reviewRow(reviewsPageState.reviews[i]);
     }
     tbody.innerHTML = html;
+
+    var paginationEl = document.querySelector(".pagination");
+    if (paginationEl) {
+        var newPagination = renderPagination(
+            reviewsPageState.page,
+            reviewsPageState.total,
+            reviewsPageState.pageSize
+        );
+        paginationEl.outerHTML = newPagination;
+    }
 }
 
 function setupReviewsPageWebSocketHandlers() {
@@ -122,35 +132,44 @@ function setupReviewsPageWebSocketHandlers() {
         var statusFilter = reviewsPageState.status;
         var repoFilter = reviewsPageState.repo;
 
-        // Check if review matches active filters
+        // Remove if no longer matches status filter
         if (statusFilter && reviewData.status !== statusFilter) {
-            // Review doesn't match status filter — remove if it was in the list
             var idx = -1;
             for (var i = 0; i < reviewsPageState.reviews.length; i++) {
                 if (reviewsPageState.reviews[i].run_id === runId) { idx = i; break; }
             }
             if (idx >= 0) {
                 reviewsPageState.reviews.splice(idx, 1);
+                reviewsPageState.total = Math.max(0, reviewsPageState.total - 1);
                 updateReviewsPageTable();
             }
             return;
         }
         if (repoFilter && basename(reviewData.repo).toLowerCase().indexOf(repoFilter.toLowerCase()) === -1) {
-            return; // Doesn't match repo filter — ignore entirely
+            return;
         }
 
-        // Update existing or prepend new
+        // Check if review is on current page
         var existingIdx = -1;
         for (var i = 0; i < reviewsPageState.reviews.length; i++) {
             if (reviewsPageState.reviews[i].run_id === runId) { existingIdx = i; break; }
         }
 
         if (existingIdx >= 0) {
+            // Existing review — update in place
             Object.assign(reviewsPageState.reviews[existingIdx], reviewData);
+            updateReviewsPageTable();
         } else {
-            reviewsPageState.reviews.unshift(reviewData);
+            // New review not on current page
+            reviewsPageState.total += 1;
+            if (reviewsPageState.page === 1) {
+                reviewsPageState.reviews.unshift(reviewData);
+                if (reviewsPageState.reviews.length > reviewsPageState.pageSize) {
+                    reviewsPageState.reviews.pop();
+                }
+                updateReviewsPageTable();
+            }
         }
-        updateReviewsPageTable();
     };
 
     ws.on("review_update", reviewsPageState.onReviewUpdate);
