@@ -266,6 +266,82 @@ func TestListReviews_DefaultLimit(t *testing.T) {
 	}
 }
 
+func TestListReviews_PageParams(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	for i := 0; i < 12; i++ {
+		_ = store.CreateReview(ctx, ReviewRecord{
+			RunID:      "pg2-" + string(rune('A'+i)),
+			Repo:       "owner/repo.git",
+			PRNumber:   i + 1,
+			BaseBranch: "main",
+			HeadBranch: "f",
+			CreatedAt:  now.Add(time.Duration(i) * time.Minute),
+		})
+	}
+
+	result, err := store.ListReviews(ctx, ListFilter{Page: 2, PageSize: 5})
+	if err != nil {
+		t.Fatalf("ListReviews failed: %v", err)
+	}
+	if len(result.Reviews) != 5 {
+		t.Fatalf("len(result.Reviews) = %d, want 5", len(result.Reviews))
+	}
+	if result.Total != 12 {
+		t.Errorf("total = %d, want 12", result.Total)
+	}
+	// Page 2 with PageSize=5 should skip first 5 (most recent by DESC), return next 5
+}
+
+func TestListReviews_TotalCountWithFilters(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "t1", Repo: "owner/a.git", PRNumber: 1, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "t2", Repo: "owner/a.git", PRNumber: 2, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "t2", StatusCompleted, ConclusionSuccess, 100, 1, "")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "t3", Repo: "owner/b.git", PRNumber: 3, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "t4", Repo: "owner/a.git", PRNumber: 4, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+	_ = store.UpdateReview(ctx, "t4", StatusFailed, ConclusionFailure, 200, 1, "err")
+	_ = store.CreateReview(ctx, ReviewRecord{RunID: "t5", Repo: "owner/b.git", PRNumber: 5, BaseBranch: "m", HeadBranch: "f", CreatedAt: now})
+
+	// Filter by status=failed
+	result, err := store.ListReviews(ctx, ListFilter{Status: StatusFailed})
+	if err != nil {
+		t.Fatalf("ListReviews failed: %v", err)
+	}
+	if len(result.Reviews) != 1 {
+		t.Fatalf("len(result.Reviews) = %d, want 1", len(result.Reviews))
+	}
+	if result.Total != 1 {
+		t.Errorf("total = %d, want 1 (only failed reviews)", result.Total)
+	}
+	if result.Reviews[0].RunID != "t4" {
+		t.Errorf("RunID = %q, want t4", result.Reviews[0].RunID)
+	}
+
+	// Filter by repo with mixed statuses — total should count all matching repo
+	repoResult, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git"})
+	if err != nil {
+		t.Fatalf("ListReviews repo filter failed: %v", err)
+	}
+	if repoResult.Total != 3 {
+		t.Errorf("total = %d, want 3 (all owner/a.git reviews)", repoResult.Total)
+	}
+
+	// Combine repo + status filter
+	combinedResult, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git", Status: StatusCompleted})
+	if err != nil {
+		t.Fatalf("ListReviews combined filter failed: %v", err)
+	}
+	if combinedResult.Total != 1 {
+		t.Errorf("total = %d, want 1 (owner/a.git + completed)", combinedResult.Total)
+	}
+}
+
 func TestGetMetrics(t *testing.T) {
 	store := testDB(t)
 	ctx := context.Background()

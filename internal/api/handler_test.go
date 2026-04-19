@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -283,6 +284,158 @@ func TestHandleListReviews_StorageError(t *testing.T) {
 // ---------------------------------------------------------------------------
 // HandleGetReview tests
 // ---------------------------------------------------------------------------
+
+func TestHandleListReviews_Page2(t *testing.T) {
+	reviews := make([]storage.ReviewRecord, 25)
+	for i := 0; i < 25; i++ {
+		reviews[i] = storage.ReviewRecord{RunID: fmt.Sprintf("r-%02d", i), Repo: "owner/repo.git", PRNumber: i + 1, CreatedAt: time.Now()}
+	}
+
+	getter := &mockReviewGetter{
+		result: &storage.ListResult{
+			Reviews: reviews[10:20],
+			Total:   25,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews?page=2&page_size=10", nil)
+	w := httptest.NewRecorder()
+
+	HandleListReviews(getter)(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result ListReviewsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Total != 25 {
+		t.Errorf("total = %d, want 25", result.Total)
+	}
+	if result.Page != 2 {
+		t.Errorf("page = %d, want 2", result.Page)
+	}
+	if result.PageSize != 10 {
+		t.Errorf("page_size = %d, want 10", result.PageSize)
+	}
+	if len(result.Reviews) != 10 {
+		t.Errorf("len(reviews) = %d, want 10", len(result.Reviews))
+	}
+	if result.Reviews[0].RunID != "r-10" {
+		t.Errorf("first review RunID = %q, want r-10", result.Reviews[0].RunID)
+	}
+}
+
+func TestHandleListReviews_PageBeyondTotal(t *testing.T) {
+	getter := &mockReviewGetter{
+		result: &storage.ListResult{
+			Reviews: []storage.ReviewRecord{},
+			Total:   5,
+		},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/reviews?page=999", nil)
+	w := httptest.NewRecorder()
+
+	HandleListReviews(getter)(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result ListReviewsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Total != 5 {
+		t.Errorf("total = %d, want 5", result.Total)
+	}
+	if len(result.Reviews) != 0 {
+		t.Errorf("len(reviews) = %d, want 0", len(result.Reviews))
+	}
+	if result.Page != 999 {
+		t.Errorf("page = %d, want 999", result.Page)
+	}
+}
+
+func TestHandleListReviews_InvalidPageValues(t *testing.T) {
+	tests := []struct {
+		name    string
+		url     string
+		wantPage int
+	}{
+		{"page zero treated as 1", "/reviews?page=0", 1},
+		{"negative page treated as 1", "/reviews?page=-1", 1},
+	}
+
+	getter := &mockReviewGetter{
+		result: &storage.ListResult{Reviews: []storage.ReviewRecord{}, Total: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			w := httptest.NewRecorder()
+
+			HandleListReviews(getter)(w, req)
+
+			resp := w.Result()
+			defer func() { _ = resp.Body.Close() }()
+
+			var result ListReviewsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("failed to decode: %v", err)
+			}
+			if result.Page != tt.wantPage {
+				t.Errorf("page = %d, want %d", result.Page, tt.wantPage)
+			}
+		})
+	}
+}
+
+func TestHandleListReviews_PageSizeValidation(t *testing.T) {
+	getter := &mockReviewGetter{
+		result: &storage.ListResult{Reviews: []storage.ReviewRecord{}, Total: 0},
+	}
+
+	tests := []struct {
+		name           string
+		url            string
+		wantPageSize   int
+	}{
+		{"zero defaults to 20", "/reviews?page_size=0", 20},
+		{"over 200 defaults to 20", "/reviews?page_size=500", 20},
+		{"non-numeric defaults to 20", "/reviews?page_size=abc", 20},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tt.url, nil)
+			w := httptest.NewRecorder()
+
+			HandleListReviews(getter)(w, req)
+
+			resp := w.Result()
+			defer func() { _ = resp.Body.Close() }()
+
+			var result ListReviewsResponse
+			if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+				t.Fatalf("failed to decode: %v", err)
+			}
+			if result.PageSize != tt.wantPageSize {
+				t.Errorf("page_size = %d, want %d", result.PageSize, tt.wantPageSize)
+			}
+		})
+	}
+}
 
 func TestHandleGetReview_Success(t *testing.T) {
 	getter := &mockReviewGetter{
