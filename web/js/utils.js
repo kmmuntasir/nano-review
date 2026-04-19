@@ -54,17 +54,50 @@ export function wordCount(text) {
     return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+function computeVisiblePages(current, total, maxVisible) {
+    if (total <= maxVisible) {
+        var pages = [];
+        for (var i = 1; i <= total; i++) pages.push(i);
+        return pages;
+    }
+    var pages = [];
+    var half = Math.floor(maxVisible / 2);
+    var start = Math.max(2, current - half + 1);
+    var end = Math.min(total - 1, start + maxVisible - 3);
+    start = Math.max(2, end - maxVisible + 3);
+    pages.push(1);
+    if (start > 2) pages.push("...");
+    for (var i = start; i <= end; i++) pages.push(i);
+    if (end < total - 1) pages.push("...");
+    pages.push(total);
+    return pages;
+}
+
 export function renderPagination(currentPage, totalItems, pageSize) {
-    if (!totalItems || totalItems <= pageSize) return "";
     var totalPages = Math.ceil(totalItems / pageSize);
+    if (totalPages <= 1) return "";
+
     var html = '<div class="pagination">';
-    if (currentPage > 1) {
-        html += '<button class="btn btn-sm" onclick="window.__goToPage(' + (currentPage - 1) + ')">Prev</button>';
+    html += '<button class="pagination-btn pagination-btn--nav"' +
+        (currentPage <= 1 ? ' disabled' : ' onclick="window.__goToPage(' + (currentPage - 1) + ')"') +
+        '>&laquo; Prev</button>';
+
+    var pages = computeVisiblePages(currentPage, totalPages, 7);
+    for (var i = 0; i < pages.length; i++) {
+        var p = pages[i];
+        if (p === "...") {
+            html += '<span class="pagination-ellipsis">&hellip;</span>';
+        } else if (p === currentPage) {
+            html += '<button class="pagination-btn pagination-btn--active" disabled>' + p + '</button>';
+        } else {
+            html += '<button class="pagination-btn" onclick="window.__goToPage(' + p + ')">' + p + '</button>';
+        }
     }
-    html += '<span class="pagination-info">Page ' + currentPage + ' of ' + totalPages + ' (' + totalItems + ' total)</span>';
-    if (currentPage < totalPages) {
-        html += '<button class="btn btn-sm" onclick="window.__goToPage(' + (currentPage + 1) + ')">Next</button>';
-    }
+
+    html += '<button class="pagination-btn pagination-btn--nav"' +
+        (currentPage >= totalPages ? ' disabled' : ' onclick="window.__goToPage(' + (currentPage + 1) + ')"') +
+        '>Next &raquo;</button>';
+
     html += '</div>';
     return html;
 }

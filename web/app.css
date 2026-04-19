@@ -398,7 +398,70 @@
         }
         .btn-primary:hover { background: var(--accent-hover); }
 
-        .load-more-wrap { text-align: center; padding: 16px; }
+        .pagination {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            padding: 16px;
+            border-top: 1px solid var(--border);
+        }
+
+        .pagination-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 36px;
+            height: 36px;
+            padding: 0 10px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg);
+            color: var(--text);
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+            line-height: 1;
+        }
+
+        .pagination-btn:hover:not(:disabled) {
+            background: var(--surface);
+            border-color: var(--muted);
+        }
+
+        .pagination-btn--active {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        .pagination-btn--active:hover:not(:disabled) {
+            background: var(--accent-hover);
+            border-color: var(--accent-hover);
+        }
+
+        .pagination-btn--nav {
+            font-size: 12px;
+            padding: 0 12px;
+        }
+
+        .pagination-btn:disabled {
+            opacity: 0.4;
+            cursor: default;
+        }
+
+        .pagination-ellipsis {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 36px;
+            height: 36px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            letter-spacing: 2px;
+            user-select: none;
+        }
 
         /* Status distribution bar */
         .status-bar {
@@ -942,6 +1005,8 @@
             .container { padding: 16px; }
             .stream-meta { gap: 8px; }
             .stream-result { grid-template-columns: repeat(2, 1fr); }
+            .pagination { flex-wrap: wrap; gap: 4px; }
+            .pagination-btn--nav { font-size: 11px; padding: 0 8px; }
         }
 
         @media (max-width: 480px) {
