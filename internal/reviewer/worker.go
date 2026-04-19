@@ -492,7 +492,7 @@ func (w *Worker) calculateMetrics(ctx context.Context) map[string]any {
 		return nil
 	}
 
-	reviews, err := w.store.ListReviews(ctx, storage.ListFilter{Limit: 10000})
+	result, err := w.store.ListReviews(ctx, storage.ListFilter{Limit: 10000})
 	if err != nil {
 		return nil
 	}
@@ -502,7 +502,7 @@ func (w *Worker) calculateMetrics(ctx context.Context) map[string]any {
 	now := time.Now()
 	todayStart := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
-	for _, r := range reviews {
+	for _, r := range result.Reviews {
 		total++
 		totalDuration += r.DurationMs
 

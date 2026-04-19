@@ -70,7 +70,7 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 // ReviewGetter provides read access to review records and metrics.
 type ReviewGetter interface {
 	GetReview(ctx context.Context, runID string) (*storage.ReviewRecord, error)
-	ListReviews(ctx context.Context, f storage.ListFilter) ([]storage.ReviewRecord, error)
+	ListReviews(ctx context.Context, f storage.ListFilter) (*storage.ListResult, error)
 	GetMetrics(ctx context.Context) (*storage.Metrics, error)
 }
 
@@ -93,14 +93,14 @@ func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
 			}
 		}
 
-		reviews, err := getter.ListReviews(r.Context(), f)
+		result, err := getter.ListReviews(r.Context(), f)
 		if err != nil {
 			slog.Error("failed to list reviews", "error", err)
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
 			return
 		}
 
-		writeJSON(w, http.StatusOK, ListReviewsResponse{Reviews: reviews, Count: len(reviews)})
+		writeJSON(w, http.StatusOK, ListReviewsResponse{Reviews: result.Reviews, Count: result.Total})
 	}
 }
 

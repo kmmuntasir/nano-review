@@ -135,17 +135,17 @@ func TestListReviews_NoFilter(t *testing.T) {
 		}
 	}
 
-	records, err := store.ListReviews(ctx, ListFilter{})
+	result, err := store.ListReviews(ctx, ListFilter{})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
-	if len(records) != 3 {
-		t.Fatalf("len(records) = %d, want 3", len(records))
+	if len(result.Reviews) != 3 {
+		t.Fatalf("len(result.Reviews) = %d, want 3", len(result.Reviews))
 	}
 
 	// Verify DESC order by created_at (most recent first)
-	if records[0].RunID != "list-test-C" {
-		t.Errorf("first record RunID = %q, want list-test-C", records[0].RunID)
+	if result.Reviews[0].RunID != "list-test-C" {
+		t.Errorf("first record RunID = %q, want list-test-C", result.Reviews[0].RunID)
 	}
 }
 
@@ -158,12 +158,12 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r2", Repo: "owner/b.git", PRNumber: 2, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
 	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r3", Repo: "owner/a.git", PRNumber: 3, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
 
-	records, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git"})
+	result, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git"})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
-	if len(records) != 2 {
-		t.Errorf("len(records) = %d, want 2", len(records))
+	if len(result.Reviews) != 2 {
+		t.Errorf("len(result.Reviews) = %d, want 2", len(result.Reviews))
 	}
 }
 
@@ -177,15 +177,15 @@ func TestListReviews_FilterByStatus(t *testing.T) {
 	_ = store.UpdateReview(ctx, "s2", StatusCompleted, ConclusionSuccess, 100, 1, "")
 	_ = store.UpdateReview(ctx, "s1", StatusFailed, ConclusionFailure, 200, 1, "err")
 
-	records, err := store.ListReviews(ctx, ListFilter{Status: StatusFailed})
+	result, err := store.ListReviews(ctx, ListFilter{Status: StatusFailed})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
-	if len(records) != 1 {
-		t.Errorf("len(records) = %d, want 1", len(records))
+	if len(result.Reviews) != 1 {
+		t.Errorf("len(result.Reviews) = %d, want 1", len(result.Reviews))
 	}
-	if records[0].RunID != "s1" {
-		t.Errorf("RunID = %q, want s1", records[0].RunID)
+	if result.Reviews[0].RunID != "s1" {
+		t.Errorf("RunID = %q, want s1", result.Reviews[0].RunID)
 	}
 }
 
@@ -210,8 +210,8 @@ func TestListReviews_Pagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReviews page 1 failed: %v", err)
 	}
-	if len(page1) != 5 {
-		t.Errorf("page1 len = %d, want 5", len(page1))
+	if len(page1.Reviews) != 5 {
+		t.Errorf("page1 len = %d, want 5", len(page1.Reviews))
 	}
 
 	// Page 2: limit=5, offset=5
@@ -219,12 +219,12 @@ func TestListReviews_Pagination(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListReviews page 2 failed: %v", err)
 	}
-	if len(page2) != 5 {
-		t.Errorf("page2 len = %d, want 5", len(page2))
+	if len(page2.Reviews) != 5 {
+		t.Errorf("page2 len = %d, want 5", len(page2.Reviews))
 	}
 
 	// Verify no overlap
-	if page1[0].RunID == page2[0].RunID {
+	if page1.Reviews[0].RunID == page2.Reviews[0].RunID {
 		t.Error("pages overlap: same first record")
 	}
 }
@@ -245,12 +245,12 @@ func TestListReviews_DefaultLimit(t *testing.T) {
 		})
 	}
 
-	records, err := store.ListReviews(ctx, ListFilter{})
+	result, err := store.ListReviews(ctx, ListFilter{})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
-	if len(records) != 50 {
-		t.Errorf("default limit: len(records) = %d, want 50", len(records))
+	if len(result.Reviews) != 50 {
+		t.Errorf("default limit: len(result.Reviews) = %d, want 50", len(result.Reviews))
 	}
 }
 
@@ -351,12 +351,12 @@ func TestConcurrentWrites(t *testing.T) {
 	}
 	wg.Wait()
 
-	records, err := store.ListReviews(ctx, ListFilter{Limit: 20})
+	result, err := store.ListReviews(ctx, ListFilter{Limit: 20})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
-	if len(records) != 10 {
-		t.Errorf("len(records) = %d, want 10", len(records))
+	if len(result.Reviews) != 10 {
+		t.Errorf("len(result.Reviews) = %d, want 10", len(result.Reviews))
 	}
 }
 

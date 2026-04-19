@@ -193,7 +193,7 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 
 type mockReviewGetter struct {
 	review  *storage.ReviewRecord
-	reviews []storage.ReviewRecord
+	result  *storage.ListResult
 	metrics *storage.Metrics
 	err     error
 }
@@ -208,8 +208,8 @@ func (m *mockReviewGetter) GetReview(_ context.Context, runID string) (*storage.
 	return nil, storage.ErrNotFound
 }
 
-func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) ([]storage.ReviewRecord, error) {
-	return m.reviews, m.err
+func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) (*storage.ListResult, error) {
+	return m.result, m.err
 }
 
 func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, error) {
@@ -222,9 +222,12 @@ func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, erro
 
 func TestHandleListReviews_Success(t *testing.T) {
 	getter := &mockReviewGetter{
-		reviews: []storage.ReviewRecord{
-			{RunID: "r1", Repo: "owner/repo.git", PRNumber: 1, Status: storage.StatusCompleted, Conclusion: storage.ConclusionSuccess, CreatedAt: time.Now()},
-			{RunID: "r2", Repo: "owner/repo.git", PRNumber: 2, Status: storage.StatusPending, CreatedAt: time.Now()},
+		result: &storage.ListResult{
+			Reviews: []storage.ReviewRecord{
+				{RunID: "r1", Repo: "owner/repo.git", PRNumber: 1, Status: storage.StatusCompleted, Conclusion: storage.ConclusionSuccess, CreatedAt: time.Now()},
+				{RunID: "r2", Repo: "owner/repo.git", PRNumber: 2, Status: storage.StatusPending, CreatedAt: time.Now()},
+			},
+			Total: 2,
 		},
 	}
 
@@ -251,7 +254,7 @@ func TestHandleListReviews_Success(t *testing.T) {
 
 func TestHandleListReviews_StorageError(t *testing.T) {
 	getter := &mockReviewGetter{
-		reviews: nil,
+		result: nil,
 		err:     errors.New("db error"),
 	}
 

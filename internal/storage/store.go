@@ -49,8 +49,8 @@ type ListFilter struct {
 	Status   ReviewStatus
 	Limit    int
 	Offset   int
-	Page     int // 1-based page number
-	PageSize int // items per page
+	Page     int    `json:"page"`
+	PageSize int    `json:"page_size"`
 }
 
 // ListResult holds a page of reviews with the total count.
@@ -75,7 +75,7 @@ type ReviewStore interface {
 	CreateReview(ctx context.Context, r ReviewRecord) error
 	UpdateReview(ctx context.Context, runID string, status ReviewStatus, conclusion ReviewConclusion, durationMs int64, attempts int, output string) error
 	GetReview(ctx context.Context, runID string) (*ReviewRecord, error)
-	ListReviews(ctx context.Context, f ListFilter) ([]ReviewRecord, error)
+	ListReviews(ctx context.Context, f ListFilter) (*ListResult, error)
 	GetMetrics(ctx context.Context) (*Metrics, error)
 	Close() error
 }

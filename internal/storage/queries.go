@@ -10,7 +10,7 @@ import (
 
 func (s *sqliteStore) CreateReview(ctx context.Context, r ReviewRecord) error {
 	query := `INSERT INTO reviews (run_id, repo, pr_number, base_branch, head_branch, status, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`
+	              VALUES (?, ?, ?, ?, ?, ?, ?)`
 	_, err := s.db.ExecContext(ctx, query,
 		r.RunID, r.Repo, r.PRNumber, r.BaseBranch, r.HeadBranch,
 		string(StatusPending), r.CreatedAt.UTC().Format(time.RFC3339),
@@ -20,7 +20,7 @@ func (s *sqliteStore) CreateReview(ctx context.Context, r ReviewRecord) error {
 
 func (s *sqliteStore) UpdateReview(ctx context.Context, runID string, status ReviewStatus, conclusion ReviewConclusion, durationMs int64, attempts int, output string) error {
 	query := `UPDATE reviews SET status = ?, conclusion = ?, duration_ms = ?, attempts = ?, claude_output = ?, completed_at = ?
-              WHERE run_id = ?`
+	              WHERE run_id = ?`
 	var completedAt *string
 	if status == StatusCompleted || status == StatusFailed || status == StatusTimedOut || status == StatusCancelled {
 		now := time.Now().UTC().Format(time.RFC3339)
@@ -35,8 +35,8 @@ func (s *sqliteStore) UpdateReview(ctx context.Context, runID string, status Rev
 
 func (s *sqliteStore) GetReview(ctx context.Context, runID string) (*ReviewRecord, error) {
 	query := `SELECT run_id, repo, pr_number, base_branch, head_branch, status, conclusion,
-                     duration_ms, attempts, claude_output, created_at, completed_at
-              FROM reviews WHERE run_id = ?`
+	                     duration_ms, attempts, claude_output, created_at, completed_at
+	              FROM reviews WHERE run_id = ?`
 	row := s.db.QueryRowContext(ctx, query, runID)
 
 	var r ReviewRecord
@@ -64,7 +64,7 @@ func (s *sqliteStore) GetReview(ctx context.Context, runID string) (*ReviewRecor
 	return &r, nil
 }
 
-func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) ([]ReviewRecord, error) {
+func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) (*ListResult, error) {
 	var conditions []string
 	var args []any
 
@@ -79,24 +79,41 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) ([]ReviewRe
 
 	where := ""
 	if len(conditions) > 0 {
-		where = "WHERE " + strings.Join(conditions, " AND ")
+		where = " WHERE " + strings.Join(conditions, " AND ")
 	}
 
+	// Count query — same WHERE conditions, no LIMIT/OFFSET
+	countQuery := "SELECT COUNT(*) FROM reviews" + where
+	var total int
+	if err := s.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, fmt.Errorf("counting reviews: %w", err)
+	}
+
+	// Derive limit/offset from Page/PageSize, fallback to Limit/Offset
 	limit := 50
-	if f.Limit > 0 && f.Limit <= 200 {
-		limit = f.Limit
-	}
-
 	offset := 0
-	if f.Offset > 0 {
-		offset = f.Offset
+	if f.PageSize > 0 {
+		limit = f.PageSize
+		if limit > 200 {
+			limit = 200
+		}
+		if f.Page > 0 {
+			offset = (f.Page - 1) * limit
+		}
+	} else {
+		if f.Limit > 0 && f.Limit <= 200 {
+			limit = f.Limit
+		}
+		if f.Offset > 0 {
+			offset = f.Offset
+		}
 	}
 
 	// Exclude claude_output from list queries for performance.
 	query := fmt.Sprintf(
 		`SELECT run_id, repo, pr_number, base_branch, head_branch, status, conclusion,
-		        duration_ms, attempts, created_at, completed_at
-		 FROM reviews %s ORDER BY created_at DESC LIMIT %d OFFSET %d`,
+			        duration_ms, attempts, created_at, completed_at
+			 FROM reviews%s ORDER BY created_at DESC LIMIT %d OFFSET %d`,
 		where, limit, offset,
 	)
 
@@ -126,7 +143,11 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) ([]ReviewRe
 		}
 		records = append(records, r)
 	}
-	return records, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return &ListResult{Reviews: records, Total: total}, nil
 }
 
 func (s *sqliteStore) GetMetrics(ctx context.Context) (*Metrics, error) {

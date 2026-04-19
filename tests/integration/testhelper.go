@@ -145,8 +145,8 @@ func (m *mockReviewGetter) GetReview(_ context.Context, _ string) (*storage.Revi
 	return nil, storage.ErrNotFound
 }
 
-func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) ([]storage.ReviewRecord, error) {
-	return []storage.ReviewRecord{}, nil
+func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) (*storage.ListResult, error) {
+	return &storage.ListResult{Reviews: []storage.ReviewRecord{}}, nil
 }
 
 func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, error) {
