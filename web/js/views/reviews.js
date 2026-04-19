@@ -1,6 +1,6 @@
 import ws from "../ws.js";
 import api from "../api.js";
-import { esc, truncate, basename, formatDuration, formatDate, badgeClass } from "../utils.js";
+import { esc, truncate, basename, formatDuration, formatDate, badgeClass, renderPagination } from "../utils.js";
 
 var app = document.getElementById("app");
 
@@ -8,14 +8,16 @@ var app = document.getElementById("app");
 var reviewsPageState = {
     status: "",
     repo: "",
-    offset: 0,
+    page: 1,
+    pageSize: 20,
+    total: 0,
     reviews: [],
     loading: false,
     onReviewUpdate: null
 };
 
 function renderReviewsPage() {
-    reviewsPageState.offset = 0;
+    reviewsPageState.page = 1;
     reviewsPageState.reviews = [];
     reviewsPageState.loading = true;
     ws.subscribe("all");
@@ -30,14 +32,17 @@ function renderReviewsPage() {
 
 function fetchReviewsForPage(callback) {
     reviewsPageState.loading = true;
-    var params = { limit: 20, offset: reviewsPageState.offset };
+    var params = {
+        page: reviewsPageState.page,
+        page_size: reviewsPageState.pageSize
+    };
     if (reviewsPageState.status) params.status = reviewsPageState.status;
     if (reviewsPageState.repo) params.repo = reviewsPageState.repo;
 
     api.listReviews(params).then(function(data) {
         reviewsPageState.loading = false;
-        reviewsPageState.reviews = reviewsPageState.reviews.concat(data.reviews || []);
-        reviewsPageState.offset += data.reviews ? data.reviews.length : 0;
+        reviewsPageState.reviews = data.reviews || [];
+        reviewsPageState.total = data.total || 0;
         if (callback) callback();
     }).catch(function() {
         reviewsPageState.loading = false;
@@ -75,7 +80,7 @@ function renderReviewsPageContent() {
             html += reviewRow(r);
         });
         html += '</tbody></table>';
-        html += '<div class="load-more-wrap"><button class="btn" onclick="window.__loadMore()">Load more</button></div>';
+        html += renderPagination(reviewsPageState.page, reviewsPageState.total, reviewsPageState.pageSize);
     }
 
     html += '</div>';
@@ -163,7 +168,7 @@ window.__applyFilter = function() {
     var r = document.getElementById("repo-filter");
     reviewsPageState.status = s ? s.value : "";
     reviewsPageState.repo = r ? r.value : "";
-    reviewsPageState.offset = 0;
+    reviewsPageState.page = 1;
     reviewsPageState.reviews = [];
     reviewsPageState.loading = true;
     renderReviewsPageContent();
@@ -172,7 +177,10 @@ window.__applyFilter = function() {
     });
 };
 
-window.__loadMore = function() {
+window.__goToPage = function(pageNum) {
+    reviewsPageState.page = pageNum;
+    reviewsPageState.loading = true;
+    renderReviewsPageContent();
     fetchReviewsForPage(function() {
         renderReviewsPageContent();
     });

@@ -53,3 +53,18 @@ export function wordCount(text) {
     if (!text) return 0;
     return text.trim().split(/\s+/).filter(Boolean).length;
 }
+
+export function renderPagination(currentPage, totalItems, pageSize) {
+    if (!totalItems || totalItems <= pageSize) return "";
+    var totalPages = Math.ceil(totalItems / pageSize);
+    var html = '<div class="pagination">';
+    if (currentPage > 1) {
+        html += '<button class="btn btn-sm" onclick="window.__goToPage(' + (currentPage - 1) + ')">Prev</button>';
+    }
+    html += '<span class="pagination-info">Page ' + currentPage + ' of ' + totalPages + ' (' + totalItems + ' total)</span>';
+    if (currentPage < totalPages) {
+        html += '<button class="btn btn-sm" onclick="window.__goToPage(' + (currentPage + 1) + ')">Next</button>';
+    }
+    html += '</div>';
+    return html;
+}
