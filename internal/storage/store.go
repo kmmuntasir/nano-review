@@ -49,14 +49,14 @@ type ListFilter struct {
 	Status   ReviewStatus
 	Limit    int
 	Offset   int
-	Page     int    `json:"page"`
-	PageSize int    `json:"page_size"`
+	Page     int
+	PageSize int
 }
 
-// ListResult holds a page of reviews with the total count.
+// ListResult holds a page of review records with the total count.
 type ListResult struct {
-	Reviews []ReviewRecord `json:"reviews"`
-	Total   int            `json:"total"`
+	Reviews []ReviewRecord
+	Total   int
 }
 
 // Metrics holds aggregate review statistics.

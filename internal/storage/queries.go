@@ -91,21 +91,18 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) (*ListResul
 
 	// Derive limit/offset from Page/PageSize, fallback to Limit/Offset
 	limit := 50
-	offset := 0
 	if f.PageSize > 0 {
 		limit = f.PageSize
 		if limit > 200 {
 			limit = 200
 		}
 		if f.Page > 0 {
-			offset = (f.Page - 1) * limit
+			offset := (f.Page - 1) * limit
+			f.Offset = offset
 		}
 	} else {
 		if f.Limit > 0 && f.Limit <= 200 {
 			limit = f.Limit
-		}
-		if f.Offset > 0 {
-			offset = f.Offset
 		}
 	}
 
@@ -114,7 +111,7 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) (*ListResul
 		`SELECT run_id, repo, pr_number, base_branch, head_branch, status, conclusion,
 			        duration_ms, attempts, created_at, completed_at
 			 FROM reviews%s ORDER BY created_at DESC LIMIT %d OFFSET %d`,
-		where, limit, offset,
+		where, limit, f.Offset,
 	)
 
 	rows, err := s.db.QueryContext(ctx, query, args...)
@@ -152,16 +149,16 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) (*ListResul
 
 func (s *sqliteStore) GetMetrics(ctx context.Context) (*Metrics, error) {
 	query := `
-        SELECT
-            COUNT(*) as total,
-            COALESCE(SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END), 0) as successes,
-            COALESCE(SUM(CASE WHEN conclusion = 'failure' THEN 1 ELSE 0 END), 0) as failures,
-            COALESCE(SUM(CASE WHEN conclusion = 'timed_out' THEN 1 ELSE 0 END), 0) as timeouts,
-            COALESCE(SUM(CASE WHEN conclusion = 'cancelled' THEN 1 ELSE 0 END), 0) as cancelled,
-            COALESCE(AVG(CASE WHEN conclusion IN ('success','failure','timed_out','cancelled') THEN duration_ms END), 0) as avg_duration,
-            COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN 1 ELSE 0 END), 0) as today
-        FROM reviews
-    `
+	        SELECT
+	            COUNT(*) as total,
+	            COALESCE(SUM(CASE WHEN conclusion = 'success' THEN 1 ELSE 0 END), 0) as successes,
+	            COALESCE(SUM(CASE WHEN conclusion = 'failure' THEN 1 ELSE 0 END), 0) as failures,
+	            COALESCE(SUM(CASE WHEN conclusion = 'timed_out' THEN 1 ELSE 0 END), 0) as timeouts,
+	            COALESCE(SUM(CASE WHEN conclusion = 'cancelled' THEN 1 ELSE 0 END), 0) as cancelled,
+	            COALESCE(AVG(CASE WHEN conclusion IN ('success','failure','timed_out','cancelled') THEN duration_ms END), 0) as avg_duration,
+	            COALESCE(SUM(CASE WHEN date(created_at) = date('now') THEN 1 ELSE 0 END), 0) as today
+	        FROM reviews
+	    `
 
 	var m Metrics
 	err := s.db.QueryRowContext(ctx, query).Scan(

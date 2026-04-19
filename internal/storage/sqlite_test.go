@@ -142,6 +142,9 @@ func TestListReviews_NoFilter(t *testing.T) {
 	if len(result.Reviews) != 3 {
 		t.Fatalf("len(result.Reviews) = %d, want 3", len(result.Reviews))
 	}
+	if result.Total != 3 {
+		t.Errorf("total = %d, want 3", result.Total)
+	}
 
 	// Verify DESC order by created_at (most recent first)
 	if result.Reviews[0].RunID != "list-test-C" {
@@ -163,7 +166,10 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
 	if len(result.Reviews) != 2 {
-		t.Errorf("len(result.Reviews) = %d, want 2", len(result.Reviews))
+		t.Fatalf("len(result.Reviews) = %d, want 2", len(result.Reviews))
+	}
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2", result.Total)
 	}
 }
 
@@ -182,7 +188,7 @@ func TestListReviews_FilterByStatus(t *testing.T) {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
 	if len(result.Reviews) != 1 {
-		t.Errorf("len(result.Reviews) = %d, want 1", len(result.Reviews))
+		t.Fatalf("len(result.Reviews) = %d, want 1", len(result.Reviews))
 	}
 	if result.Reviews[0].RunID != "s1" {
 		t.Errorf("RunID = %q, want s1", result.Reviews[0].RunID)
@@ -211,7 +217,10 @@ func TestListReviews_Pagination(t *testing.T) {
 		t.Fatalf("ListReviews page 1 failed: %v", err)
 	}
 	if len(page1.Reviews) != 5 {
-		t.Errorf("page1 len = %d, want 5", len(page1.Reviews))
+		t.Fatalf("page1 len = %d, want 5", len(page1.Reviews))
+	}
+	if page1.Total != 10 {
+		t.Errorf("page1 total = %d, want 10", page1.Total)
 	}
 
 	// Page 2: limit=5, offset=5
@@ -220,7 +229,7 @@ func TestListReviews_Pagination(t *testing.T) {
 		t.Fatalf("ListReviews page 2 failed: %v", err)
 	}
 	if len(page2.Reviews) != 5 {
-		t.Errorf("page2 len = %d, want 5", len(page2.Reviews))
+		t.Fatalf("page2 len = %d, want 5", len(page2.Reviews))
 	}
 
 	// Verify no overlap
@@ -250,7 +259,10 @@ func TestListReviews_DefaultLimit(t *testing.T) {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
 	if len(result.Reviews) != 50 {
-		t.Errorf("default limit: len(result.Reviews) = %d, want 50", len(result.Reviews))
+		t.Fatalf("default limit: len(result.Reviews) = %d, want 50", len(result.Reviews))
+	}
+	if result.Total != 60 {
+		t.Errorf("default limit: total = %d, want 60", result.Total)
 	}
 }
 
@@ -356,7 +368,7 @@ func TestConcurrentWrites(t *testing.T) {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
 	if len(result.Reviews) != 10 {
-		t.Errorf("len(result.Reviews) = %d, want 10", len(result.Reviews))
+		t.Fatalf("len(result.Reviews) = %d, want 10", len(result.Reviews))
 	}
 }
 

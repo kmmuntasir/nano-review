@@ -176,7 +176,7 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 
 	var result AcceptResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		t.Fatalf("failed to decode response: %v", err)
+		t.Fatalf("failed to decode: %v", err)
 	}
 
 	if result.Status != "accepted" {
@@ -209,7 +209,10 @@ func (m *mockReviewGetter) GetReview(_ context.Context, runID string) (*storage.
 }
 
 func (m *mockReviewGetter) ListReviews(_ context.Context, _ storage.ListFilter) (*storage.ListResult, error) {
-	return m.result, m.err
+	if m.err != nil {
+		return nil, m.err
+	}
+	return m.result, nil
 }
 
 func (m *mockReviewGetter) GetMetrics(_ context.Context) (*storage.Metrics, error) {
@@ -247,15 +250,21 @@ func TestHandleListReviews_Success(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
-	if result.Count != 2 {
-		t.Errorf("count = %d, want 2", result.Count)
+	if result.Total != 2 {
+		t.Errorf("total = %d, want 2", result.Total)
+	}
+	if result.Page != 1 {
+		t.Errorf("page = %d, want 1", result.Page)
+	}
+	if result.PageSize != 20 {
+		t.Errorf("page_size = %d, want 20", result.PageSize)
 	}
 }
 
 func TestHandleListReviews_StorageError(t *testing.T) {
 	getter := &mockReviewGetter{
 		result: nil,
-		err:     errors.New("db error"),
+		err:    errors.New("db error"),
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/reviews", nil)

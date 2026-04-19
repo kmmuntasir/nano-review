@@ -75,23 +75,41 @@ type ReviewGetter interface {
 }
 
 // HandleListReviews returns an http.HandlerFunc that lists reviews with optional filters.
-// Query params: repo, status, limit, offset
+// Query params: repo, status, page, page_size, limit, offset (legacy)
 func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := storage.ListFilter{
 			Repo:   r.URL.Query().Get("repo"),
 			Status: storage.ReviewStatus(r.URL.Query().Get("status")),
 		}
-		if v := r.URL.Query().Get("limit"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
-				f.Limit = n
+
+		page := 1
+		pageSize := 20
+		if v := r.URL.Query().Get("page"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 {
+				page = n
 			}
 		}
+		if v := r.URL.Query().Get("page_size"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+				pageSize = n
+			}
+		}
+
+		// Legacy offset/limit support
 		if v := r.URL.Query().Get("offset"); v != "" {
-			if n, err := strconv.Atoi(v); err == nil {
+			if n, err := strconv.Atoi(v); err == nil && n >= 0 {
 				f.Offset = n
 			}
 		}
+		if v := r.URL.Query().Get("limit"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+				f.Limit = n
+			}
+		}
+
+		f.Page = page
+		f.PageSize = pageSize
 
 		result, err := getter.ListReviews(r.Context(), f)
 		if err != nil {
@@ -100,7 +118,12 @@ func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, ListReviewsResponse{Reviews: result.Reviews, Count: result.Total})
+		writeJSON(w, http.StatusOK, ListReviewsResponse{
+			Reviews:  result.Reviews,
+			Total:    result.Total,
+			Page:     page,
+			PageSize: pageSize,
+		})
 	}
 }
 

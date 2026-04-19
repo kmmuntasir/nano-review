@@ -45,6 +45,8 @@ func ValidatePayload(p ReviewPayload) error {
 
 // ListReviewsResponse wraps a page of review records.
 type ListReviewsResponse struct {
-	Reviews []storage.ReviewRecord `json:"reviews"`
-	Count   int                    `json:"count"`
+	Reviews  []storage.ReviewRecord `json:"reviews"`
+	Total    int                    `json:"total"`
+	Page     int                    `json:"page"`
+	PageSize int                    `json:"page_size"`
 }
