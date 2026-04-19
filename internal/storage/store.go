@@ -45,10 +45,18 @@ type ReviewRecord struct {
 
 // ListFilter specifies optional filters for listing reviews.
 type ListFilter struct {
-	Repo   string
-	Status ReviewStatus
-	Limit  int
-	Offset int
+	Repo     string
+	Status   ReviewStatus
+	Limit    int
+	Offset   int
+	Page     int // 1-based page number
+	PageSize int // items per page
+}
+
+// ListResult holds a page of reviews with the total count.
+type ListResult struct {
+	Reviews []ReviewRecord `json:"reviews"`
+	Total   int            `json:"total"`
 }
 
 // Metrics holds aggregate review statistics.
