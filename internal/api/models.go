@@ -48,3 +48,22 @@ type ListReviewsResponse struct {
 	Reviews []storage.ReviewRecord `json:"reviews"`
 	Count   int                    `json:"count"`
 }
+
+// StartResult replaces AcceptResponse as the review start response.
+// RetryAfter and QueueDepth are set when the review is queued.
+type StartResult struct {
+	RunID      string `json:"run_id"`
+	Status     string `json:"status"`
+	RetryAfter int    `json:"retry_after,omitempty"`
+	QueueDepth int    `json:"queue_depth,omitempty"`
+}
+
+// HealthResponse is returned by GET /health with queue-aware metrics.
+type HealthResponse struct {
+	Status        string `json:"status"`
+	ActiveReviews int32  `json:"active_reviews"`
+	QueuedReviews int32  `json:"queued_reviews"`
+	MaxConcurrent int    `json:"max_concurrent"`
+	MaxQueueSize  int    `json:"max_queue_size"`
+	UptimeSeconds int64  `json:"uptime_seconds"`
+}
