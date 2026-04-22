@@ -283,6 +283,28 @@ func main() {
 		}
 	}
 
+	maxConcurrent := 3
+	if v := os.Getenv("MAX_CONCURRENT_REVIEWS"); v != "" {
+		var n int
+		n, err = strconv.Atoi(v)
+		if err == nil && n > 0 {
+			maxConcurrent = n
+		} else {
+			slog.Error("invalid MAX_CONCURRENT_REVIEWS, using default", "value", v, "error", err)
+		}
+	}
+
+	maxQueueSize := 100
+	if v := os.Getenv("MAX_QUEUE_SIZE"); v != "" {
+		var n int
+		n, err = strconv.Atoi(v)
+		if err == nil && n >= 0 {
+			maxQueueSize = n
+		} else {
+			slog.Error("invalid MAX_QUEUE_SIZE, using default", "value", v, "error", err)
+		}
+	}
+
 	mcpConfigPath := configureClaudeMCP(resolveMCPConfigPath())
 
 	dbPath := os.Getenv("DATABASE_PATH")
@@ -331,6 +353,15 @@ func main() {
 	}
 
 	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries, resolveReviewOutputDir())
+
+	queue := reviewer.NewQueue(worker, store, maxConcurrent, maxQueueSize)
+	queue.Start()
+	defer queue.Stop()
+
+	slog.Info("review queue started",
+		"max_concurrent", maxConcurrent,
+		"max_queue_size", maxQueueSize,
+	)
 
 	sessionSecret := os.Getenv("SESSION_SECRET")
 	if sessionSecret == "" {
@@ -386,7 +417,8 @@ func main() {
 	mux.HandleFunc("GET /auth/login", auth.HandleGoogleLogin(oauthCfg))
 	mux.HandleFunc("GET /auth/callback", auth.HandleOAuthCallback(oauthCfg))
 	mux.HandleFunc("GET /auth/logout", auth.HandleLogout(sessionMgr))
-	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, worker))
+	mux.HandleFunc("POST /review", api.HandleReview(webhookSecret, queue))
+	mux.HandleFunc("GET /health", api.HandleHealth(queue))
 	mux.HandleFunc("GET /auth/me", auth.HandleSessionInfo(sessionMgr))
 
 	// Protected routes — RequireAuth middleware (no-op when AUTH_ENABLED=false).
@@ -439,6 +471,7 @@ func main() {
 
 	sig := <-quit
 	slog.Info("shutdown signal received", "signal", sig.String())
+	queue.Stop()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
