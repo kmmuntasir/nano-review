@@ -14,16 +14,12 @@ import (
 )
 
 type mockReviewStarter struct {
-	runID  string
-	status string
+	result *StartResult
 	err    error
 }
 
 func (m *mockReviewStarter) StartReview(_ context.Context, _ ReviewPayload) (*StartResult, error) {
-	if m.err != nil {
-		return nil, m.err
-	}
-	return &StartResult{RunID: m.runID, Status: m.status}, nil
+	return m.result, m.err
 }
 
 func TestHandleReview(t *testing.T) {
@@ -44,7 +40,7 @@ func TestHandleReview(t *testing.T) {
 			method:     http.MethodPost,
 			secret:     secret,
 			body:       validBody,
-			starter:    &mockReviewStarter{runID: "abc-123", status: "accepted"},
+			starter:    &mockReviewStarter{result: &StartResult{RunID: "abc-123", Status: "accepted"}},
 			wantStatus: http.StatusOK,
 			wantJSON:   `"status":"accepted"`,
 		},
@@ -98,9 +94,27 @@ func TestHandleReview(t *testing.T) {
 			method:     http.MethodPost,
 			secret:     secret,
 			body:       validBody,
-			starter:    &mockReviewStarter{err: errors.New("starter failed")},
+			starter:    &mockReviewStarter{result: nil, err: errors.New("starter failed")},
 			wantStatus: http.StatusInternalServerError,
 			wantJSON:   `"error":"internal server error"`,
+		},
+		{
+			name:       "queued review returns 202",
+			method:     http.MethodPost,
+			secret:     secret,
+			body:       validBody,
+			starter:    &mockReviewStarter{result: &StartResult{Status: "queued", RetryAfter: 30, QueueDepth: 5}},
+			wantStatus: http.StatusAccepted,
+			wantJSON:   `"status":"queued"`,
+		},
+		{
+			name:       "queue full returns 503",
+			method:     http.MethodPost,
+			secret:     secret,
+			body:       validBody,
+			starter:    &mockReviewStarter{result: nil, err: ErrQueueFull},
+			wantStatus: http.StatusServiceUnavailable,
+			wantJSON:   `"error":"review queue full"`,
 		},
 		{
 			name:       "empty body returns 400",
@@ -116,7 +130,7 @@ func TestHandleReview(t *testing.T) {
 			method:     http.MethodPost,
 			secret:     secret,
 			body:       validBody,
-			starter:    &mockReviewStarter{runID: "unique-run-id-42", status: "accepted"},
+			starter:    &mockReviewStarter{result: &StartResult{RunID: "unique-run-id-42", Status: "accepted"}},
 			wantStatus: http.StatusOK,
 			wantJSON:   `"run_id":"unique-run-id-42"`,
 		},
@@ -172,7 +186,7 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 	req.Header.Set("X-Webhook-Secret", secret)
 	w := httptest.NewRecorder()
 
-	handler := HandleReview(secret, &mockReviewStarter{runID: "test-run-123", status: "accepted"})
+	handler := HandleReview(secret, &mockReviewStarter{result: &StartResult{RunID: "test-run-123", Status: "accepted"}})
 	handler(w, req)
 
 	resp := w.Result()
@@ -188,6 +202,78 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 	}
 	if result.RunID != "test-run-123" {
 		t.Errorf("run_id = %q, want %q", result.RunID, "test-run-123")
+	}
+}
+
+func TestHandleReview_QueuedResponse(t *testing.T) {
+	const secret = "test-secret"
+	validBody := `{"repo_url":"git@github.com:owner/repo.git","pr_number":42,"base_branch":"main","head_branch":"feature/x"}`
+
+	req := httptest.NewRequest(http.MethodPost, "/review", strings.NewReader(validBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Secret", secret)
+	w := httptest.NewRecorder()
+
+	handler := HandleReview(secret, &mockReviewStarter{result: &StartResult{Status: "queued", RetryAfter: 30, QueueDepth: 5}})
+	handler(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusAccepted)
+	}
+
+	if ra := resp.Header.Get("Retry-After"); ra != "30" {
+		t.Errorf("Retry-After = %q, want %q", ra, "30")
+	}
+
+	var result StartResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if result.Status != "queued" {
+		t.Errorf("status = %q, want %q", result.Status, "queued")
+	}
+	if result.RetryAfter != 30 {
+		t.Errorf("retry_after = %d, want 30", result.RetryAfter)
+	}
+	if result.QueueDepth != 5 {
+		t.Errorf("queue_depth = %d, want 5", result.QueueDepth)
+	}
+}
+
+func TestHandleReview_QueueFullResponse(t *testing.T) {
+	const secret = "test-secret"
+	validBody := `{"repo_url":"git@github.com:owner/repo.git","pr_number":42,"base_branch":"main","head_branch":"feature/x"}`
+
+	req := httptest.NewRequest(http.MethodPost, "/review", strings.NewReader(validBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Webhook-Secret", secret)
+	w := httptest.NewRecorder()
+
+	handler := HandleReview(secret, &mockReviewStarter{result: nil, err: ErrQueueFull})
+	handler(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusServiceUnavailable)
+	}
+
+	if ra := resp.Header.Get("Retry-After"); ra != "30" {
+		t.Errorf("Retry-After = %q, want %q", ra, "30")
+	}
+
+	var body ErrorResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Error != "review queue full" {
+		t.Errorf("error = %q, want %q", body.Error, "review queue full")
 	}
 }
 
