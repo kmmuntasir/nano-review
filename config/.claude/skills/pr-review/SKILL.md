@@ -75,7 +75,13 @@ All diff analysis, file content checks, and code review should happen locally us
 
    Use local tools (Read, Glob, Grep) to examine file contents as needed. You can use the Parallel subagent strategy to speed up this analysis (see below).
 
-5. **Post inline comments via MCP** (FIRST MCP call since step 1): For **EACH** genuine issue found, call `mcp__github__add_comment_to_pending_review` with:
+5. **Create a pending review via MCP** (FIRST MCP call since step 1): Call `mcp__github__pull_request_review_write` with:
+   - `method`: `create`
+   - `owner`, `repo`, `pullNumber` from the prompt
+   - Do NOT set `event` — omitting it creates a **pending** review that stays open for inline comments.
+   - If this call fails, fall through to the fallback in step 8.
+
+6. **Post inline comments via MCP**: For **EACH** genuine issue found, call `mcp__github__add_comment_to_pending_review` with:
    - `owner`, `repo`, `pullNumber` from the prompt
    - `path`: the file path from the diff
    - `line`: the relevant line number
@@ -84,15 +90,15 @@ All diff analysis, file content checks, and code review should happen locally us
 
    **CRITICAL**: Each issue MUST get its own inline comment at the exact line where the issue occurs. Do NOT combine multiple issues into a single comment. Do NOT post a summary comment as a substitute for inline comments.
 
-6. **Submit the review via MCP**: Call `mcp__github__pull_request_review_write` with:
-   - `method`: `create`
+7. **Submit the pending review via MCP**: Call `mcp__github__pull_request_review_write` with:
+   - `method`: `submit_pending`
    - `owner`, `repo`, `pullNumber` from the prompt
    - `event`: `REQUEST_CHANGES` if issues were found, `COMMENT` if the PR looks clean
    - `body`: A BRIEF overall summary only — do NOT repeat all the inline comments here. This should be a high-level note like "Found 5 issues requiring changes" or "LGTM, just minor suggestions."
 
-7. **Fallback**: Only if the inline comment tool (`mcp__github__add_comment_to_pending_review`) fails for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
+8. **Fallback**: Only if the inline comment tool (`mcp__github__add_comment_to_pending_review`) fails for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
 
-8. **Final Report**: Finally, respond with a short report including these things:
+9. **Final Report**: Finally, respond with a short report including these things:
    - A very short summary of the review outcome
    - Number of inline comments posted
    - If you posted a summary comment, include the reason why you had to fallback to a summary instead of inline comments
