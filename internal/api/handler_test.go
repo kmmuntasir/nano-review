@@ -421,6 +421,96 @@ func TestHandleHealthz(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// HandleHealth tests
+// ---------------------------------------------------------------------------
+
+type mockQueueStater struct {
+	stats HealthResponse
+}
+
+func (m *mockQueueStater) Stats() HealthResponse {
+	return m.stats
+}
+
+func TestHandleHealth_OK(t *testing.T) {
+	qs := &mockQueueStater{
+		stats: HealthResponse{Status: "ok", ActiveReviews: 0, QueuedReviews: 0, MaxConcurrent: 5, MaxQueueSize: 100, UptimeSeconds: 3600},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+
+	HandleHealth(qs)(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Errorf("status = %q, want %q", result.Status, "ok")
+	}
+}
+
+func TestHandleHealth_Degraded(t *testing.T) {
+	qs := &mockQueueStater{
+		stats: HealthResponse{Status: "ok", ActiveReviews: 2, QueuedReviews: 85, MaxConcurrent: 5, MaxQueueSize: 100, UptimeSeconds: 3600},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+
+	HandleHealth(qs)(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Status != "degraded" {
+		t.Errorf("status = %q, want %q", result.Status, "degraded")
+	}
+}
+
+func TestHandleHealth_ExactThreshold(t *testing.T) {
+	qs := &mockQueueStater{
+		stats: HealthResponse{Status: "ok", ActiveReviews: 1, QueuedReviews: 80, MaxConcurrent: 5, MaxQueueSize: 100, UptimeSeconds: 3600},
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/health", nil)
+	w := httptest.NewRecorder()
+
+	HandleHealth(qs)(w, req)
+
+	resp := w.Result()
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var result HealthResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if result.Status != "ok" {
+		t.Errorf("status = %q, want %q (80/100 is exactly 80%%, threshold uses > not >=)", result.Status, "ok")
+	}
+}
+
 func TestHandleGetMetrics_StorageError(t *testing.T) {
 	getter := &mockReviewGetter{
 		metrics: nil,
