@@ -11,7 +11,6 @@ services:
     volumes:
       - review-logs:/app/logs
       - review-data:/app/data
-      - ./config/.claude:/home/appuser/.claude:ro
     restart: unless-stopped
 
 volumes:
