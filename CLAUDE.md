@@ -69,7 +69,7 @@ docker compose run --rm nano-review go test -tags=integration ./...
 
 ## Architecture
 
-GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async goroutine: git clone to /tmp/<id>/<repo-name>/ → claude -p "/pr-review" (CWD: /tmp/<id>/) → defer rm -rf /tmp/<id>
+GitHub PR Event → GitHub Action → POST /review → API Server (Go) → Queue (bounded, wraps Worker) → goroutine: git clone to /tmp/<id>/<repo-name>/ → claude -p "/pr-review" (CWD: /tmp/<id>/) → defer rm -rf /tmp/<id>
 
 - Subdirectory clone: repo is cloned into `/tmp/nano-review-<id>/<repo-name>/` with Claude CWD set to `/tmp/nano-review-<id>/` to prevent the target repo's `.claude/` config from being loaded as project config.
 
@@ -79,7 +79,7 @@ GitHub PR Event → GitHub Action → POST /review → API Server (Go) → async
 cmd/server/main.go               # Entry point — wire deps, start HTTP server
 
 internal/api/
-  handler.go                      # HTTP handlers — POST /review, GET /reviews, GET /reviews/{run_id}, GET /metrics
+  handler.go                      # HTTP handlers — POST /review, GET /reviews, GET /reviews/{run_id}, GET /metrics, GET /health
   ws_handler.go                   # WebSocket handler for live review streaming (GET /ws)
   hub.go                          # WebSocket hub — manages client subscriptions and topic broadcasting
   models.go                       # Request/response types, ReviewPayload, ReviewStarter interface
@@ -95,6 +95,7 @@ internal/storage/
 
 internal/reviewer/
   worker.go                       # Review lifecycle: clone, run Claude Code CLI, cleanup, retry
+  queue.go                        # Bounded queue wrapping Worker — concurrency limit, queue buffering, health stats
   logger.go                       # Structured file logger with lumberjack rotation
   stream.go                       # Stream accumulator and file-based streaming for WebSocket relay
   broadcaster.go                  # Broadcaster interface for decoupled WebSocket event push
@@ -128,7 +129,7 @@ scripts/                           # Native development helper scripts
 
 ### Key Interfaces
 
-- `ReviewStarter` — consumed by API handler, implemented by reviewer worker
+- `ReviewStarter` — consumed by API handler, implemented by reviewer queue (wraps Worker)
 - `ReviewGetter` — consumed by API handlers for read endpoints, implemented by storage
 - `ReviewStore` — persists review records and provides query access
 - `ClaudeRunner` — abstracts `os/exec` calls for testability
@@ -141,7 +142,8 @@ scripts/                           # Native development helper scripts
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
-| POST | `/review` | Webhook secret | Start async review. Returns `{"status": "accepted", "run_id": "<uuid>"}` |
+| POST | `/review` | Webhook secret | Start async review. Returns `200 {"status": "accepted", "run_id": "<uuid>"}`, `202 {"status": "queued", ...}` with `Retry-After`, or `503` if queue full |
+| GET | `/health` | None | Service health: active/queued reviews, concurrency limits, uptime. Status `"degraded"` when queue >80% full |
 | GET | `/reviews` | Session (if enabled) | List reviews. Query params: `repo`, `status`, `limit`, `offset` |
 | GET | `/reviews/{run_id}` | Session (if enabled) | Get single review detail with full output |
 | GET | `/metrics` | Session (if enabled) | Aggregate stats: success rate, avg duration, reviews today |
@@ -159,7 +161,7 @@ Note: Set `AUTH_ENABLED=false` to disable authentication and make all session-pr
 Required: `WEBHOOK_SECRET`, `ANTHROPIC_AUTH_TOKEN`, `GITHUB_PAT`
 
 Claude Code Configuration:
-`PORT` (8080), `CLAUDE_CODE_PATH` (auto-detected), `CLAUDE_MODEL`, `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `MAX_REVIEW_DURATION` (600s), `MAX_RETRIES` (2)
+`PORT` (8080), `CLAUDE_CODE_PATH` (auto-detected), `CLAUDE_MODEL`, `ANTHROPIC_BASE_URL`, `API_TIMEOUT_MS`, `ANTHROPIC_DEFAULT_HAIKU_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL`, `ANTHROPIC_DEFAULT_OPUS_MODEL`, `CLAUDE_CODE_DISABLE_1M_CONTEXT`, `DISABLE_TELEMETRY`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `MAX_REVIEW_DURATION` (600s), `MAX_RETRIES` (2), `MAX_CONCURRENT_REVIEWS` (3), `MAX_QUEUE_SIZE` (100)
 
 Database: `DATABASE_PATH` (`/app/data/reviews.db` in Docker, `./data/reviews.db` native)
 

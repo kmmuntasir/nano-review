@@ -23,7 +23,7 @@ Manual code reviews are a bottleneck. Existing automated tools (linters, static 
 - ~~Review history persistence or dashboards.~~ **Implemented:** SQLite storage with WAL mode (`internal/storage/`), web dashboard with live WebSocket streaming (`web/`), review detail views, and aggregate metrics endpoint.
 - Configurable review rules or per-repository customization.
 - Notifications (Slack, email, etc.).
-- ~~Rate limiting or queue management for concurrent reviews.~~ **Partially implemented:** Transient failure retry with exponential backoff (configurable `MAX_RETRIES`), per-review timeout (`MAX_REVIEW_DURATION`). No global queue or concurrency limit yet.
+- ~~Rate limiting or queue management for concurrent reviews.~~ **Implemented:** Bounded queue with configurable concurrency limit (`MAX_CONCURRENT_REVIEWS`, default 3) and max queue size (`MAX_QUEUE_SIZE`, default 100). Returns HTTP 202 with `Retry-After` when queued, HTTP 503 when queue is full. Transient failure retry with exponential backoff (`MAX_RETRIES`) and per-review timeout (`MAX_REVIEW_DURATION`) also apply.
 - Support for platforms other than GitHub.
 
 ## 5. Architecture
@@ -93,14 +93,46 @@ Receives a webhook payload from GitHub Actions and triggers an asynchronous PR r
 
 **Response (synchronous):**
 
-| Status | Body | Condition |
-|---|---|---|
-| 200 | `{"status": "accepted", "run_id": "abc123"}` | Valid request, review queued. |
-| 400 | `{"error": "missing required field: pr_number"}` | Invalid payload. |
-| 401 | `{"error": "invalid or missing webhook secret"}` | Missing or wrong secret. |
-| 500 | `{"error": "internal server error"}` | Unexpected failure. |
+| Status | Body | Headers | Condition |
+|---|---|---|---|
+| 200 | `{"status": "accepted", "run_id": "abc123"}` | — | Valid request, review started immediately (concurrency slot available). |
+| 202 | `{"status": "queued", "run_id": "abc123", "queue_depth": 2, "retry_after": 21}` | `Retry-After: <seconds>` | Valid request, review queued (all concurrency slots in use). |
+| 400 | `{"error": "missing required field: pr_number"}` | — | Invalid payload. |
+| 401 | `{"error": "invalid or missing webhook secret"}` | — | Missing or wrong secret. |
+| 500 | `{"error": "internal server error"}` | — | Unexpected failure. |
+| 503 | `{"error": "review queue full"}` | `Retry-After: 30` | Queue is at capacity (`MAX_QUEUE_SIZE`). |
+
+The `Retry-After` header for HTTP 202 is calculated dynamically based on queue depth and concurrency: `((queue_depth + 1) * 30 / max_concurrent) + 1` seconds.
 
 **Response (asynchronous - optional future enhancement):** None in MVP. The review outcome is posted directly to the GitHub PR.
+
+### `GET /health`
+
+Returns service health status including queue utilization.
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "active_reviews": 1,
+  "queued_reviews": 0,
+  "max_concurrent": 3,
+  "max_queue_size": 100,
+  "uptime_seconds": 3600
+}
+```
+
+| Field | Type | Description |
+|---|---|---|
+| `status` | string | `"ok"` if queue utilization is under 80%, `"degraded"` otherwise. |
+| `active_reviews` | integer | Number of reviews currently running. |
+| `queued_reviews` | integer | Number of reviews waiting in the queue. |
+| `max_concurrent` | integer | Maximum concurrent reviews (`MAX_CONCURRENT_REVIEWS`). |
+| `max_queue_size` | integer | Maximum queue capacity (`MAX_QUEUE_SIZE`). |
+| `uptime_seconds` | integer | Server uptime in seconds. |
+
+Always returns HTTP 200.
 
 ## 7. Review Worker Flow
 
@@ -123,7 +155,7 @@ For each incoming review request:
 5. **Capture output** - Log stdout/stderr for debugging. The exit code determines success/failure.
 6. **Force cleanup** - `rm -rf /tmp/nano-review-<id>` regardless of success or failure.
 
-The worker runs as a goroutine. No concurrency limit in MVP (one goroutine per request).
+The worker runs as a goroutine dispatched from a bounded queue. A `Queue` wraps the `Worker`, limiting concurrency via `MAX_CONCURRENT_REVIEWS` (default 3) and buffering excess requests up to `MAX_QUEUE_SIZE` (default 100).
 
 ## 8. Claude Code Configuration
 
@@ -236,13 +268,15 @@ nano-review/
 │   │   ├── context_test.go
 │   │   ├── oauth.go
 │   │   └── oauth_test.go
-│   ├── reviewer/                 # Review worker, streaming, broadcasting
+│   ├── reviewer/                 # Review worker, queue, streaming, broadcasting
 │   │   ├── broadcaster.go
 │   │   ├── logger.go
+│   │   ├── queue.go
 │   │   ├── stream.go
 │   │   ├── stream_test.go
 │   │   ├── worker.go
-│   │   └── worker_test.go
+│   │   ├── worker_test.go
+│   │   └── queue_test.go
 │   └── storage/                  # SQLite persistence with WAL mode
 │       ├── migrate.go
 │       ├── queries.go
@@ -353,6 +387,8 @@ ENTRYPOINT ["/usr/local/bin/nano-review"]
 | `ANTHROPIC_DEFAULT_SONNET_MODEL` | No | Override sonnet model name. |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` | No | Override opus model name. |
 | `CLAUDE_CODE_DISABLE_1M_CONTEXT` | No | Disable 1M context window. |
+| `MAX_CONCURRENT_REVIEWS` | No | Maximum number of reviews that can run concurrently (default: `3`). |
+| `MAX_QUEUE_SIZE` | No | Maximum number of reviews that can be queued before returning 503 (default: `100`). |
 
 ### `.env.example`
 
@@ -380,8 +416,14 @@ Entry point. Reads environment variables, initializes the HTTP server, registers
 HTTP handler for `POST /review`:
 - Validates the `X-Webhook-Secret` header against `WEBHOOK_SECRET` env var.
 - Parses and validates the JSON payload.
-- Calls `reviewer.StartReview(payload)` in a new goroutine.
-- Returns `200 {"status": "accepted", "run_id": "<id>"}` immediately.
+- Calls `queue.StartReview(payload)` which dispatches to a bounded queue wrapping the worker.
+- Returns `200 {"status": "accepted", "run_id": "<id>"}` if a concurrency slot is available.
+- Returns `202 {"status": "queued", "run_id": "<id>", "queue_depth": N, "retry_after": N}` with `Retry-After` header if queued.
+- Returns `503 {"error": "review queue full"}` with `Retry-After: 30` if the queue is at capacity.
+
+HTTP handler for `GET /health`:
+- Returns queue and concurrency stats (active reviews, queued reviews, max limits, uptime).
+- Returns `"degraded"` status when queue utilization exceeds 80%.
 
 ### `internal/reviewer/worker.go`
 
