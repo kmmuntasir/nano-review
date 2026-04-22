@@ -194,17 +194,17 @@ func TestStartReview_ReturnsNonEmptyRunID(t *testing.T) {
 
 	w := NewWorker(claude, nil, logger, nil, "git", "claude", "", "", "", 0, 0, t.TempDir())
 
-	runID, err := w.StartReview(context.Background(), testPayload())
+	result, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
-	if runID == "" {
+	if result.RunID == "" {
 		t.Fatal("StartReview returned empty runID")
 	}
 
 	// UUIDs from uuid.New() are 36 characters (8-4-4-4-12 format)
-	if len(runID) != 36 {
-		t.Errorf("runID length = %d, want 36", len(runID))
+	if len(result.RunID) != 36 {
+		t.Errorf("runID length = %d, want 36", len(result.RunID))
 	}
 }
 
@@ -260,7 +260,7 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	runID, err := w.StartReview(ctx, testPayload())
+	_, err := w.StartReview(ctx, testPayload())
 	if err != nil {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
@@ -277,7 +277,6 @@ func TestProcessReview_ClaudeFailure_CleansUp(t *testing.T) {
 		return false
 	}, "expected error log from claude failure")
 
-	_ = runID
 }
 
 func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
@@ -658,7 +657,7 @@ func TestProcessReview_RetryOnTransientError(t *testing.T) {
 
 	w := NewWorker(claude, nil, logger, nil, "true", "claude", "", "", "", 30*time.Second, 2, t.TempDir())
 
-	runID, err := w.StartReview(context.Background(), testPayload())
+	_, err := w.StartReview(context.Background(), testPayload())
 	if err != nil {
 		t.Fatalf("StartReview returned error: %v", err)
 	}
@@ -668,7 +667,6 @@ func TestProcessReview_RetryOnTransientError(t *testing.T) {
 		return len(claude.getCalls()) >= 2
 	}, "expected 2 claude.Run calls (initial + 1 retry)")
 
-	_ = runID
 
 	calls := claude.getCalls()
 	if len(calls) != 2 {

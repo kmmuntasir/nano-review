@@ -114,12 +114,10 @@ func (w *Worker) GetReviewStatus(ctx context.Context, runID string) (storage.Rev
 
 // StartReview validates the payload, generates a unique run ID, and launches
 // the review asynchronously. It returns the run ID immediately without blocking.
-func (w *Worker) StartReview(ctx context.Context, p api.ReviewPayload) (string, error) {
+func (w *Worker) StartReview(_ context.Context, p api.ReviewPayload) (*api.StartResult, error) {
 	runID := uuid.New().String()
-	// Create a new context for the background goroutine, independent of the HTTP request context
-	bgCtx := context.Background()
-	go w.processReview(bgCtx, runID, p)
-	return runID, nil
+	go w.processReview(context.Background(), runID, p)
+	return &api.StartResult{RunID: runID, Status: "accepted"}, nil
 }
 
 // processReview is the async goroutine that clones the repo, runs Claude Code

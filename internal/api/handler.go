@@ -13,7 +13,12 @@ import (
 
 // ReviewStarter initiates an asynchronous PR review.
 type ReviewStarter interface {
-	StartReview(ctx context.Context, p ReviewPayload) (string, error)
+	StartReview(ctx context.Context, p ReviewPayload) (*StartResult, error)
+}
+
+// QueueStater provides queue-aware health metrics.
+type QueueStater interface {
+	Stats() HealthResponse
 }
 
 // HandleReview returns an http.HandlerFunc that validates the webhook request
@@ -41,20 +46,34 @@ func HandleReview(secret string, starter ReviewStarter) http.HandlerFunc {
 			return
 		}
 
-		runID, err := starter.StartReview(r.Context(), payload)
+		result, err := starter.StartReview(r.Context(), payload)
 		if err != nil {
+			if errors.Is(err, ErrQueueFull) {
+				w.Header().Set("Retry-After", "30")
+				writeJSON(w, http.StatusServiceUnavailable, ErrorResponse{Error: "review queue full"})
+				return
+			}
 			slog.Error("failed to start review", "error", err)
 			writeJSON(w, http.StatusInternalServerError, ErrorResponse{Error: "internal server error"})
 			return
 		}
 
 		slog.Info("review accepted",
-			"run_id", runID,
+			"run_id", result.RunID,
+			"status", result.Status,
 			"pr_number", payload.PRNumber,
 			"repo", payload.RepoURL,
 		)
 
-		writeJSON(w, http.StatusOK, AcceptResponse{Status: "accepted", RunID: runID})
+		if result.Status == "queued" {
+			if result.RetryAfter > 0 {
+				w.Header().Set("Retry-After", strconv.Itoa(result.RetryAfter))
+			}
+			writeJSON(w, http.StatusAccepted, result)
+			return
+		}
+
+		writeJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -133,6 +152,18 @@ func HandleGetReview(getter ReviewGetter) http.HandlerFunc {
 func HandleHealthz() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// HandleHealth returns queue-aware health metrics. Reports "degraded" status
+// when queued reviews exceed 80% of max queue capacity.
+func HandleHealth(qs QueueStater) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		stats := qs.Stats()
+		if stats.QueuedReviews > int32(float64(stats.MaxQueueSize)*0.8) {
+			stats.Status = "degraded"
+		}
+		writeJSON(w, http.StatusOK, stats)
 	}
 }
 

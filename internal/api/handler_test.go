@@ -14,12 +14,16 @@ import (
 )
 
 type mockReviewStarter struct {
-	runID string
-	err   error
+	runID  string
+	status string
+	err    error
 }
 
-func (m *mockReviewStarter) StartReview(_ context.Context, _ ReviewPayload) (string, error) {
-	return m.runID, m.err
+func (m *mockReviewStarter) StartReview(_ context.Context, _ ReviewPayload) (*StartResult, error) {
+	if m.err != nil {
+		return nil, m.err
+	}
+	return &StartResult{RunID: m.runID, Status: m.status}, nil
 }
 
 func TestHandleReview(t *testing.T) {
@@ -40,7 +44,7 @@ func TestHandleReview(t *testing.T) {
 			method:     http.MethodPost,
 			secret:     secret,
 			body:       validBody,
-			starter:    &mockReviewStarter{runID: "abc-123"},
+			starter:    &mockReviewStarter{runID: "abc-123", status: "accepted"},
 			wantStatus: http.StatusOK,
 			wantJSON:   `"status":"accepted"`,
 		},
@@ -112,7 +116,7 @@ func TestHandleReview(t *testing.T) {
 			method:     http.MethodPost,
 			secret:     secret,
 			body:       validBody,
-			starter:    &mockReviewStarter{runID: "unique-run-id-42"},
+			starter:    &mockReviewStarter{runID: "unique-run-id-42", status: "accepted"},
 			wantStatus: http.StatusOK,
 			wantJSON:   `"run_id":"unique-run-id-42"`,
 		},
@@ -168,13 +172,13 @@ func TestHandleReview_ResponseFields(t *testing.T) {
 	req.Header.Set("X-Webhook-Secret", secret)
 	w := httptest.NewRecorder()
 
-	handler := HandleReview(secret, &mockReviewStarter{runID: "test-run-123"})
+	handler := HandleReview(secret, &mockReviewStarter{runID: "test-run-123", status: "accepted"})
 	handler(w, req)
 
 	resp := w.Result()
 	defer func() { _ = resp.Body.Close() }()
 
-	var result AcceptResponse
+	var result StartResult
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}

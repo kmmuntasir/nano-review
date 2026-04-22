@@ -135,8 +135,8 @@ func (s *integrationServer) CreateToken(sessionID string) string {
 
 type mockReviewStarter struct{}
 
-func (m *mockReviewStarter) StartReview(_ context.Context, _ api.ReviewPayload) (string, error) {
-	return "mock-run-id", nil
+func (m *mockReviewStarter) StartReview(_ context.Context, _ api.ReviewPayload) (*api.StartResult, error) {
+	return &api.StartResult{RunID: "mock-run-id", Status: "accepted"}, nil
 }
 
 type mockReviewGetter struct{}
