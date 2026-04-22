@@ -15,6 +15,7 @@ const (
 	StatusFailed    ReviewStatus = "failed"
 	StatusTimedOut  ReviewStatus = "timed_out"
 	StatusCancelled ReviewStatus = "cancelled"
+	StatusQueued    ReviewStatus = "queued"
 )
 
 // ReviewConclusion describes the final outcome of a completed review.
