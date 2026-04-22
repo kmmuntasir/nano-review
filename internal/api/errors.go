@@ -6,4 +6,5 @@ var (
 	ErrInvalidPayload = errors.New("invalid review payload")
 	ErrUnauthorized   = errors.New("invalid or missing webhook secret")
 	ErrCloneFailed    = errors.New("git clone failed")
+	ErrQueueFull      = errors.New("review queue full")
 )
