@@ -9,18 +9,22 @@ import (
 )
 
 func (s *sqliteStore) CreateReview(ctx context.Context, r ReviewRecord) error {
-	query := `INSERT INTO reviews (run_id, repo, pr_number, base_branch, head_branch, status, created_at)
-              VALUES (?, ?, ?, ?, ?, ?, ?)`
+	query := `INSERT OR IGNORE INTO reviews (run_id, repo, pr_number, base_branch, head_branch, status, created_at)
+	              VALUES (?, ?, ?, ?, ?, ?, ?)`
+	status := r.Status
+	if status == "" {
+		status = StatusPending
+	}
 	_, err := s.db.ExecContext(ctx, query,
 		r.RunID, r.Repo, r.PRNumber, r.BaseBranch, r.HeadBranch,
-		string(StatusPending), r.CreatedAt.UTC().Format(time.RFC3339),
+		string(status), r.CreatedAt.UTC().Format(time.RFC3339),
 	)
 	return err
 }
 
 func (s *sqliteStore) UpdateReview(ctx context.Context, runID string, status ReviewStatus, conclusion ReviewConclusion, durationMs int64, attempts int, output string) error {
 	query := `UPDATE reviews SET status = ?, conclusion = ?, duration_ms = ?, attempts = ?, claude_output = ?, completed_at = ?
-              WHERE run_id = ?`
+	              WHERE run_id = ?`
 	var completedAt *string
 	if status == StatusCompleted || status == StatusFailed || status == StatusTimedOut || status == StatusCancelled {
 		now := time.Now().UTC().Format(time.RFC3339)
@@ -36,7 +40,7 @@ func (s *sqliteStore) UpdateReview(ctx context.Context, runID string, status Rev
 func (s *sqliteStore) GetReview(ctx context.Context, runID string) (*ReviewRecord, error) {
 	query := `SELECT run_id, repo, pr_number, base_branch, head_branch, status, conclusion,
                      duration_ms, attempts, claude_output, created_at, completed_at
-              FROM reviews WHERE run_id = ?`
+	              FROM reviews WHERE run_id = ?`
 	row := s.db.QueryRowContext(ctx, query, runID)
 
 	var r ReviewRecord

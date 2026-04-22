@@ -4,6 +4,7 @@ import { esc, truncate, basename, formatDuration, formatPercent, badgeClass } fr
 
 let dashboardState = {
     metrics: null,
+    queuedReviews: [],
     pendingReviews: [],
     runningReviews: [],
     onReviewUpdate: null,
@@ -27,22 +28,25 @@ function renderDashboard() {
     ws.subscribe("all");
     Promise.all([
         api.getMetrics(),
+        api.listReviews({ status: "queued", limit: 5 }),
         api.listReviews({ status: "pending", limit: 5 }),
         api.listReviews({ status: "running", limit: 5 })
     ]).then(function(results) {
         var m = results[0];
-        var pending = (results[1] && results[1].reviews) || [];
-        var running = (results[2] && results[2].reviews) || [];
-        renderDashboardContent(m, pending, running);
+        var queued = (results[1] && results[1].reviews) || [];
+        var pending = (results[2] && results[2].reviews) || [];
+        var running = (results[3] && results[3].reviews) || [];
+        renderDashboardContent(m, queued, pending, running);
         setupDashboardWebSocketHandlers();
     }).catch(function() {
         app.innerHTML = '<div class="empty">Failed to load dashboard data</div>';
     });
 }
 
-function renderDashboardContent(metrics, pendingReviews, runningReviews) {
+function renderDashboardContent(metrics, queuedReviews, pendingReviews, runningReviews) {
     var app = document.getElementById("app");
     dashboardState.metrics = metrics;
+    dashboardState.queuedReviews = queuedReviews || [];
     dashboardState.pendingReviews = pendingReviews || [];
     dashboardState.runningReviews = runningReviews || [];
 
@@ -58,7 +62,7 @@ function renderDashboardContent(metrics, pendingReviews, runningReviews) {
         '</div>' +
         '<div class="table-wrap">' +
         '<div class="table-header"><h2>Active Reviews</h2></div>' +
-        activeReviewsSection(pendingReviews, runningReviews) +
+        activeReviewsSection(queuedReviews, pendingReviews, runningReviews) +
         '</div>';
     app.innerHTML = html;
 }
@@ -122,7 +126,21 @@ function setupDashboardWebSocketHandlers() {
                 }
             }
 
-            // If review is now active (pending or running), add it
+            // Check queued reviews
+            if (!wasActive) {
+                for (var i = 0; i < dashboardState.queuedReviews.length; i++) {
+                    if (dashboardState.queuedReviews[i].run_id === msg.run_id) {
+                        wasActive = true;
+                        removeIdx = i;
+                        break;
+                    }
+                }
+                if (wasActive) {
+                    dashboardState.queuedReviews.splice(removeIdx, 1);
+                }
+            }
+
+            // If review is now active, add it to the right list
             if (newStatus === "running") {
                 dashboardState.runningReviews.unshift(reviewData);
                 if (dashboardState.runningReviews.length > 5) {
@@ -132,6 +150,11 @@ function setupDashboardWebSocketHandlers() {
                 dashboardState.pendingReviews.unshift(reviewData);
                 if (dashboardState.pendingReviews.length > 5) {
                     dashboardState.pendingReviews = dashboardState.pendingReviews.slice(0, 5);
+                }
+            } else if (newStatus === "queued") {
+                dashboardState.queuedReviews.unshift(reviewData);
+                if (dashboardState.queuedReviews.length > 5) {
+                    dashboardState.queuedReviews = dashboardState.queuedReviews.slice(0, 5);
                 }
             }
 
@@ -186,8 +209,8 @@ function statusBar(metrics) {
     return '<div class="status-bar">' + segments + '</div>' + legend;
 }
 
-function activeReviewsSection(pending, running) {
-    var all = (running || []).concat(pending || []);
+function activeReviewsSection(queued, pending, running) {
+    var all = (queued || []).concat(running || []).concat(pending || []);
     if (!all.length) {
         return '<div class="empty">No active reviews</div>';
     }
@@ -247,7 +270,7 @@ function updateActiveReviews() {
     var container = document.querySelector(".active-reviews");
     if (!container) return;
 
-    var all = dashboardState.runningReviews.concat(dashboardState.pendingReviews);
+    var all = dashboardState.queuedReviews.concat(dashboardState.runningReviews).concat(dashboardState.pendingReviews);
     if (!all.length) {
         var wrap = container.parentElement;
         if (wrap) wrap.innerHTML = '<div class="empty">No active reviews</div>';

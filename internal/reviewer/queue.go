@@ -61,6 +61,9 @@ func (q *Queue) dispatch() {
 				defer q.wg.Done()
 				defer func() { <-q.sem }()
 				defer q.active.Add(-1)
+				if q.store != nil {
+					_ = q.store.UpdateReview(context.Background(), e.runID, storage.StatusPending, "", 0, 0, "")
+				}
 				q.worker.processReview(context.Background(), e.runID, e.payload)
 			}(entry)
 		case <-q.quit:

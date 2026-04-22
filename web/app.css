@@ -12,6 +12,7 @@
             --status-completed: #10b981;
             --status-running: #3b82f6;
             --status-pending: #f59e0b;
+            --status-queued: #8b5cf6;
             --status-failed: #ef4444;
             --status-timed_out: #f97316;
             --status-cancelled: #9ca3af;
@@ -42,6 +43,7 @@
             --status-completed: #34d399;
             --status-running: #60a5fa;
             --status-pending: #fbbf24;
+            --status-queued: #a78bfa;
             --status-failed: #f87171;
             --status-timed_out: #fb923c;
             --status-cancelled: #6b7280;
@@ -357,6 +359,7 @@
         .badge-completed { background: var(--status-completed); }
         .badge-running { background: var(--status-running); }
         .badge-pending { background: var(--status-pending); color: var(--badge-pending-text); }
+        .badge-queued { background: var(--status-queued); }
         .badge-failed { background: var(--status-failed); }
         .badge-timed_out { background: var(--status-timed_out); }
         .badge-cancelled { background: var(--status-cancelled); }

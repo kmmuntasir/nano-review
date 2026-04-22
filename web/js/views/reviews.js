@@ -53,6 +53,7 @@ function renderReviewsPageContent() {
         '<select id="status-filter" onchange="window.__applyFilter()">' +
         '<option value="">All statuses</option>' +
         '<option value="pending"' + (reviewsPageState.status === "pending" ? " selected" : "") + '>Pending</option>' +
+        '<option value="queued"' + (reviewsPageState.status === "queued" ? " selected" : "") + '>Queued</option>' +
         '<option value="running"' + (reviewsPageState.status === "running" ? " selected" : "") + '>Running</option>' +
         '<option value="completed"' + (reviewsPageState.status === "completed" ? " selected" : "") + '>Completed</option>' +
         '<option value="failed"' + (reviewsPageState.status === "failed" ? " selected" : "") + '>Failed</option>' +
