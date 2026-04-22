@@ -667,7 +667,6 @@ func TestProcessReview_RetryOnTransientError(t *testing.T) {
 		return len(claude.getCalls()) >= 2
 	}, "expected 2 claude.Run calls (initial + 1 retry)")
 
-
 	calls := claude.getCalls()
 	if len(calls) != 2 {
 		t.Fatalf("claude.Run called %d times, want 2 (initial + 1 retry)", len(calls))

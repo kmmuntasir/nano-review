@@ -14,12 +14,6 @@ type ReviewPayload struct {
 	HeadBranch string `json:"head_branch"`
 }
 
-// AcceptResponse is returned when a review request is accepted for processing.
-type AcceptResponse struct {
-	Status string `json:"status"`
-	RunID  string `json:"run_id"`
-}
-
 // ErrorResponse is returned for error conditions.
 type ErrorResponse struct {
 	Error string `json:"error"`
@@ -49,7 +43,7 @@ type ListReviewsResponse struct {
 	Count   int                    `json:"count"`
 }
 
-// StartResult replaces AcceptResponse as the review start response.
+// StartResult is the review start response.
 // RetryAfter and QueueDepth are set when the review is queued.
 type StartResult struct {
 	RunID      string `json:"run_id"`
