@@ -45,11 +45,13 @@ type ListReviewsResponse struct {
 
 // StartResult is the review start response.
 // RetryAfter and QueueDepth are set when the review is queued.
+// CancelledRunID is set when a stale in-flight review was cancelled to start this one.
 type StartResult struct {
-	RunID      string `json:"run_id"`
-	Status     string `json:"status"`
-	RetryAfter int    `json:"retry_after,omitempty"`
-	QueueDepth int    `json:"queue_depth,omitempty"`
+	RunID          string `json:"run_id"`
+	Status         string `json:"status"`
+	RetryAfter     int    `json:"retry_after,omitempty"`
+	QueueDepth     int    `json:"queue_depth,omitempty"`
+	CancelledRunID string `json:"cancelled_run_id,omitempty"`
 }
 
 // HealthResponse is returned by GET /health with queue-aware metrics.
