@@ -321,6 +321,77 @@ func TestGetMetrics_EmptyDatabase(t *testing.T) {
 	}
 }
 
+func TestFindActiveReview_Found(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	_ = store.CreateReview(ctx, ReviewRecord{
+		RunID: "active-1", Repo: "git@github.com:owner/repo.git", PRNumber: 42,
+		BaseBranch: "main", HeadBranch: "feature/x", CreatedAt: now,
+	})
+
+	got, err := store.FindActiveReview(ctx, "git@github.com:owner/repo.git", 42)
+	if err != nil {
+		t.Fatalf("FindActiveReview failed: %v", err)
+	}
+	if got.RunID != "active-1" {
+		t.Errorf("RunID = %q, want %q", got.RunID, "active-1")
+	}
+	if got.Status != StatusPending {
+		t.Errorf("Status = %q, want %q", got.Status, StatusPending)
+	}
+}
+
+func TestFindActiveReview_NotFound_Completed(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+
+	_ = store.CreateReview(ctx, ReviewRecord{
+		RunID: "done-1", Repo: "git@github.com:owner/repo.git", PRNumber: 42,
+		BaseBranch: "main", HeadBranch: "feature/x", CreatedAt: time.Now().UTC(),
+	})
+	_ = store.UpdateReview(ctx, "done-1", StatusCompleted, ConclusionSuccess, 5000, 1, "ok")
+
+	_, err := store.FindActiveReview(ctx, "git@github.com:owner/repo.git", 42)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestFindActiveReview_NotFound_NoRecords(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+
+	_, err := store.FindActiveReview(ctx, "git@github.com:owner/repo.git", 99)
+	if err != ErrNotFound {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestFindActiveReview_ReturnsMostRecent(t *testing.T) {
+	store := testDB(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	_ = store.CreateReview(ctx, ReviewRecord{
+		RunID: "older", Repo: "git@github.com:owner/repo.git", PRNumber: 42,
+		BaseBranch: "main", HeadBranch: "feature/x", CreatedAt: now.Add(-5 * time.Minute),
+	})
+	_ = store.CreateReview(ctx, ReviewRecord{
+		RunID: "newer", Repo: "git@github.com:owner/repo.git", PRNumber: 42,
+		BaseBranch: "main", HeadBranch: "feature/y", CreatedAt: now,
+	})
+
+	got, err := store.FindActiveReview(ctx, "git@github.com:owner/repo.git", 42)
+	if err != nil {
+		t.Fatalf("FindActiveReview failed: %v", err)
+	}
+	if got.RunID != "newer" {
+		t.Errorf("RunID = %q, want %q (most recent)", got.RunID, "newer")
+	}
+}
+
 func TestConcurrentWrites(t *testing.T) {
 	store := testDB(t)
 	ctx := context.Background()

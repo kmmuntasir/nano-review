@@ -156,3 +156,36 @@ func (s *sqliteStore) GetMetrics(ctx context.Context) (*Metrics, error) {
 	}
 	return &m, nil
 }
+
+func (s *sqliteStore) FindActiveReview(ctx context.Context, repo string, prNumber int) (*ReviewRecord, error) {
+	query := `SELECT run_id, repo, pr_number, base_branch, head_branch, status, conclusion,
+                     duration_ms, attempts, claude_output, created_at, completed_at
+              FROM reviews
+              WHERE repo = ? AND pr_number = ? AND status IN ('queued', 'pending', 'running')
+              ORDER BY created_at DESC LIMIT 1`
+	row := s.db.QueryRowContext(ctx, query, repo, prNumber)
+
+	var r ReviewRecord
+	var status, conclusion, claudeOutput, completedAt sql.NullString
+
+	err := row.Scan(
+		&r.RunID, &r.Repo, &r.PRNumber, &r.BaseBranch, &r.HeadBranch,
+		&status, &conclusion, &r.DurationMs, &r.Attempts,
+		&claudeOutput, &r.CreatedAt, &completedAt,
+	)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("find active review for repo %s pr %d: %w", repo, prNumber, err)
+	}
+
+	r.Status = ReviewStatus(status.String)
+	r.Conclusion = ReviewConclusion(conclusion.String)
+	r.ClaudeOutput = claudeOutput.String
+	if completedAt.Valid {
+		t, _ := time.Parse(time.RFC3339, completedAt.String)
+		r.CompletedAt = &t
+	}
+	return &r, nil
+}

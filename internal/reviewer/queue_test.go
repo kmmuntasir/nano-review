@@ -74,7 +74,10 @@ func (m *mockQueueStore) ListReviews(_ context.Context, _ storage.ListFilter) ([
 	return nil, nil
 }
 func (m *mockQueueStore) GetMetrics(_ context.Context) (*storage.Metrics, error) { return nil, nil }
-func (m *mockQueueStore) Close() error                                           { return nil }
+func (m *mockQueueStore) FindActiveReview(_ context.Context, _ string, _ int) (*storage.ReviewRecord, error) {
+	return nil, storage.ErrNotFound
+}
+func (m *mockQueueStore) Close() error { return nil }
 
 func initGitRepo(t *testing.T) string {
 	t.Helper()

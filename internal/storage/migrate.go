@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS reviews (
 CREATE INDEX IF NOT EXISTS idx_reviews_repo ON reviews(repo);
 CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
 CREATE INDEX IF NOT EXISTS idx_reviews_created_at ON reviews(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_reviews_repo_pr_status ON reviews(repo, pr_number, status);
 
 CREATE TABLE IF NOT EXISTS sessions (
     id            TEXT PRIMARY KEY,
