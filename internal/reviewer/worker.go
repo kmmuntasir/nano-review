@@ -355,6 +355,13 @@ func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status
 	}
 }
 
+// BroadcastReviewUpdate sends a review status event to WebSocket subscribers.
+// Exported wrapper for broadcastReviewUpdate, used by Queue to broadcast
+// cancellation events for deduplication.
+func (w *Worker) BroadcastReviewUpdate(ctx context.Context, runID string, status storage.ReviewStatus, conclusion string, durationMs int64) {
+	w.broadcastReviewUpdate(ctx, runID, status, conclusion, durationMs)
+}
+
 func formatCompletedAt(t *time.Time) *string {
 	if t == nil {
 		return nil
