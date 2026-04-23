@@ -2,9 +2,11 @@ package reviewer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os/exec"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -112,6 +114,67 @@ func newTestQueue(t *testing.T, maxConcurrent, maxQueueSize int, runner ClaudeRu
 	q := NewQueue(w, &mockQueueStore{}, maxConcurrent, maxQueueSize)
 	q.Start()
 	return q, payload
+}
+
+func newTestQueueWithBroadcaster(t *testing.T, maxConcurrent, maxQueueSize int, runner ClaudeRunner, broadcaster Broadcaster) (*Queue, api.ReviewPayload) {
+	t.Helper()
+	repoDir := initGitRepo(t)
+	payload := api.ReviewPayload{
+		RepoURL:    "file://" + repoDir + "/.git",
+		PRNumber:   1,
+		BaseBranch: "main",
+		HeadBranch: "main",
+	}
+	w := NewWorker(
+		runner,
+		&mockQueueStore{},
+		&mockLogger{},
+		broadcaster,
+		"git", "claude", "", "", "pat",
+		10*time.Minute, 0, t.TempDir(),
+	)
+	q := NewQueue(w, &mockQueueStore{}, maxConcurrent, maxQueueSize)
+	q.Start()
+	return q, payload
+}
+
+type mockBroadcastRecorder struct {
+	mu     sync.Mutex
+	events []broadcastEvent
+}
+
+type broadcastEvent struct {
+	topic string
+	data  []byte
+}
+
+func (m *mockBroadcastRecorder) Broadcast(topic string, data []byte) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.events = append(m.events, broadcastEvent{topic: topic, data: data})
+}
+
+func (m *mockBroadcastRecorder) getEvents() []broadcastEvent {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]broadcastEvent, len(m.events))
+	copy(out, m.events)
+	return out
+}
+
+func waitForIdle(t *testing.T, q *Queue) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		stats := q.Stats()
+		if stats.ActiveReviews == 0 && stats.QueuedReviews == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	stats := q.Stats()
+	t.Fatalf("timed out waiting for idle queue: active=%d, queued=%d",
+		stats.ActiveReviews, stats.QueuedReviews)
 }
 
 func waitForActive(t *testing.T, q *Queue, min int32) {
@@ -326,5 +389,228 @@ func TestQueue_Stop_Waits(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("Stop() did not return after releasing runner")
+	}
+}
+
+func TestQueue_Dedup_CancelRunning(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payload := newTestQueue(t, 2, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	resB, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+	if resB.CancelledRunID != resA.RunID {
+		t.Errorf("expected CancelledRunID=%q, got %q", resA.RunID, resB.CancelledRunID)
+	}
+
+	close(runner.release)
+	runner.release = make(chan struct{})
+	waitForIdle(t, q)
+}
+
+func TestQueue_Dedup_SkipStaleQueued(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payload := newTestQueue(t, 1, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	_, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	resB, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+
+	resC, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit C failed: %v", err)
+	}
+	if resC.CancelledRunID != resB.RunID {
+		t.Errorf("expected C to cancel B (run_id=%q), got cancelled=%q", resB.RunID, resC.CancelledRunID)
+	}
+
+	close(runner.release)
+	waitForIdle(t, q)
+}
+
+func TestQueue_Dedup_DifferentPRs(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payload := newTestQueue(t, 2, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	_, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+
+	payloadB := payload
+	payloadB.PRNumber = 2
+	resB, err := q.StartReview(context.Background(), payloadB)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+	if resB.CancelledRunID != "" {
+		t.Errorf("different PRs should not cancel, got CancelledRunID=%q", resB.CancelledRunID)
+	}
+
+	waitForActive(t, q, 2)
+
+	close(runner.release)
+	waitForIdle(t, q)
+}
+
+func TestQueue_Dedup_DifferentRepos(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payloadA := newTestQueue(t, 2, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payloadA)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+
+	repoDir2 := initGitRepo(t)
+	payloadB := api.ReviewPayload{
+		RepoURL:    "file://" + repoDir2 + "/.git",
+		PRNumber:   1,
+		BaseBranch: "main",
+		HeadBranch: "main",
+	}
+	resB, err := q.StartReview(context.Background(), payloadB)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+	if resB.CancelledRunID != "" {
+		t.Errorf("different repos should not cancel, got CancelledRunID=%q", resB.CancelledRunID)
+	}
+	if resA.Status != "accepted" {
+		t.Errorf("A expected accepted, got %q", resA.Status)
+	}
+	if resB.Status != "accepted" {
+		t.Errorf("B expected accepted, got %q", resB.Status)
+	}
+
+	close(runner.release)
+	waitForIdle(t, q)
+}
+
+func TestQueue_Dedup_RapidFire(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payload := newTestQueue(t, 1, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	const n = 5
+	var results []*api.StartResult
+	for i := 0; i < n; i++ {
+		res, err := q.StartReview(context.Background(), payload)
+		if err != nil {
+			t.Fatalf("submit %d failed: %v", i, err)
+		}
+		results = append(results, res)
+	}
+
+	lastIdx := n - 1
+	prevIdx := n - 2
+	if results[lastIdx].CancelledRunID != results[prevIdx].RunID {
+		t.Errorf("last submission should cancel previous, want cancelled=%q got %q",
+			results[prevIdx].RunID, results[lastIdx].CancelledRunID)
+	}
+
+	close(runner.release)
+	waitForIdle(t, q)
+}
+
+func TestQueue_Dedup_CancelledBroadcast(t *testing.T) {
+	runner := newBlockingRunner()
+	bc := &mockBroadcastRecorder{}
+	q, payload := newTestQueueWithBroadcaster(t, 1, 10, runner, bc)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	_, err = q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+
+	close(runner.release)
+	waitForIdle(t, q)
+
+	events := bc.getEvents()
+	found := false
+	for _, ev := range events {
+		var msg map[string]any
+		if err := json.Unmarshal(ev.data, &msg); err != nil {
+			continue
+		}
+		if ev.topic == "run:"+resA.RunID && msg["status"] == string(storage.StatusCancelled) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected cancelled broadcast for run A, none found")
+	}
+}
+
+func TestQueue_Dedup_StatsConsistent(t *testing.T) {
+	runner := newBlockingRunner()
+	q, payload := newTestQueue(t, 1, 10, runner)
+	defer func() {
+		close(runner.release)
+		q.Stop()
+	}()
+
+	_, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	q.StartReview(context.Background(), payload)
+	q.StartReview(context.Background(), payload)
+
+	close(runner.release)
+	waitForIdle(t, q)
+
+	stats := q.Stats()
+	if stats.ActiveReviews != 0 {
+		t.Errorf("expected active=0 after idle, got %d", stats.ActiveReviews)
+	}
+	if stats.QueuedReviews != 0 {
+		t.Errorf("expected queued=0 after idle, got %d", stats.QueuedReviews)
 	}
 }
