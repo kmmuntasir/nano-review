@@ -2,6 +2,7 @@ package reviewer
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -15,6 +16,7 @@ import (
 type pendingReview struct {
 	runID   string
 	payload api.ReviewPayload
+	key     string
 }
 
 type Queue struct {
@@ -29,6 +31,10 @@ type Queue struct {
 	wg            sync.WaitGroup
 	quit          chan struct{}
 	startedAt     time.Time
+	mu            sync.Mutex
+	cancelMap     map[string]context.CancelFunc
+	pendingMap    map[string]string
+	staleRunIDs   map[string]bool
 }
 
 func NewQueue(worker *Worker, store storage.ReviewStore, maxConcurrent, maxQueueSize int) *Queue {
@@ -40,7 +46,15 @@ func NewQueue(worker *Worker, store storage.ReviewStore, maxConcurrent, maxQueue
 		maxConcurrent: maxConcurrent,
 		maxQueueSize:  maxQueueSize,
 		quit:          make(chan struct{}),
+		cancelMap:     make(map[string]context.CancelFunc),
+		pendingMap:    make(map[string]string),
+		staleRunIDs:   make(map[string]bool),
 	}
+}
+
+func dedupKey(p api.ReviewPayload) string {
+	owner, repo := parseRepoURL(p.RepoURL)
+	return fmt.Sprintf("%s/%s:%d", owner, repo, p.PRNumber)
 }
 
 func (q *Queue) Start() {
@@ -52,21 +66,56 @@ func (q *Queue) Start() {
 func (q *Queue) dispatch() {
 	defer q.wg.Done()
 	for entry := range q.pending {
+		q.mu.Lock()
+		if q.staleRunIDs[entry.runID] {
+			delete(q.staleRunIDs, entry.runID)
+			if q.pendingMap[entry.key] == entry.runID {
+				delete(q.pendingMap, entry.key)
+			}
+			q.mu.Unlock()
+
+			if q.store != nil {
+				_ = q.store.UpdateReview(context.Background(), entry.runID,
+					storage.StatusCancelled, storage.ConclusionCancelled, 0, 0, "")
+			}
+			q.worker.BroadcastReviewUpdate(context.Background(), entry.runID,
+				storage.StatusCancelled, string(storage.ConclusionCancelled), 0)
+			q.waiting.Add(-1)
+			continue
+		}
+
+		delete(q.pendingMap, entry.key)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		q.cancelMap[entry.key] = cancel
+		q.mu.Unlock()
+
 		select {
 		case q.sem <- struct{}{}:
 			q.waiting.Add(-1)
 			q.active.Add(1)
 			q.wg.Add(1)
-			go func(e pendingReview) {
+			go func(e pendingReview, reviewCtx context.Context, reviewCancel context.CancelFunc) {
 				defer q.wg.Done()
 				defer func() { <-q.sem }()
 				defer q.active.Add(-1)
+				defer func() {
+					q.mu.Lock()
+					delete(q.cancelMap, e.key)
+					q.mu.Unlock()
+					reviewCancel()
+				}()
 				if q.store != nil {
-					_ = q.store.UpdateReview(context.Background(), e.runID, storage.StatusPending, "", 0, 0, "")
+					_ = q.store.UpdateReview(context.Background(), e.runID,
+						storage.StatusPending, "", 0, 0, "")
 				}
-				q.worker.processReview(context.Background(), e.runID, e.payload)
-			}(entry)
+				q.worker.processReview(reviewCtx, e.runID, e.payload)
+			}(entry, ctx, cancel)
 		case <-q.quit:
+			cancel()
+			q.mu.Lock()
+			delete(q.cancelMap, entry.key)
+			q.mu.Unlock()
 			return
 		}
 	}
@@ -88,6 +137,21 @@ func (q *Queue) Stop() {
 
 func (q *Queue) StartReview(_ context.Context, p api.ReviewPayload) (*api.StartResult, error) {
 	runID := uuid.New().String()
+	key := dedupKey(p)
+
+	var cancelledRunID string
+
+	q.mu.Lock()
+	if cancelFn, ok := q.cancelMap[key]; ok {
+		cancelFn()
+		delete(q.cancelMap, key)
+	}
+	if oldRunID, ok := q.pendingMap[key]; ok {
+		q.staleRunIDs[oldRunID] = true
+		cancelledRunID = oldRunID
+	}
+	q.pendingMap[key] = runID
+	q.mu.Unlock()
 
 	if q.store != nil {
 		record := storage.ReviewRecord{
@@ -103,8 +167,9 @@ func (q *Queue) StartReview(_ context.Context, p api.ReviewPayload) (*api.StartR
 	}
 
 	result := &api.StartResult{
-		RunID:  runID,
-		Status: "accepted",
+		RunID:          runID,
+		Status:         "accepted",
+		CancelledRunID: cancelledRunID,
 	}
 
 	if int(q.active.Load()) >= q.maxConcurrent {
@@ -116,10 +181,16 @@ func (q *Queue) StartReview(_ context.Context, p api.ReviewPayload) (*api.StartR
 
 	q.waiting.Add(1)
 	select {
-	case q.pending <- pendingReview{runID: runID, payload: p}:
+	case q.pending <- pendingReview{runID: runID, payload: p, key: key}:
 		return result, nil
 	default:
 		q.waiting.Add(-1)
+		q.mu.Lock()
+		if q.pendingMap[key] == runID {
+			delete(q.pendingMap, key)
+		}
+		delete(q.staleRunIDs, runID)
+		q.mu.Unlock()
 		return nil, api.ErrQueueFull
 	}
 }
