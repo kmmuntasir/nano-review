@@ -307,7 +307,7 @@ func (w *Worker) broadcastReviewUpdate(ctx context.Context, runID string, status
 
 	// Include full review record so the frontend doesn't need a separate fetch.
 	if w.store != nil {
-		if review, err := w.store.GetReview(ctx, runID); err == nil {
+		if review, err := w.store.GetReview(ctx, runID); err == nil && review != nil {
 			msgData["review"] = map[string]any{
 				"run_id":       review.RunID,
 				"repo":         review.Repo,

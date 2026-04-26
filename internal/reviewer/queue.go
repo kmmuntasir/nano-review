@@ -19,6 +19,11 @@ type pendingReview struct {
 	key     string
 }
 
+type cancelEntry struct {
+	runID  string
+	cancel context.CancelFunc
+}
+
 type Queue struct {
 	worker        *Worker
 	store         storage.ReviewStore
@@ -32,7 +37,7 @@ type Queue struct {
 	quit          chan struct{}
 	startedAt     time.Time
 	mu            sync.Mutex
-	cancelMap     map[string]context.CancelFunc
+	cancelMap     map[string]cancelEntry
 	pendingMap    map[string]string
 	staleRunIDs   map[string]bool
 }
@@ -46,7 +51,7 @@ func NewQueue(worker *Worker, store storage.ReviewStore, maxConcurrent, maxQueue
 		maxConcurrent: maxConcurrent,
 		maxQueueSize:  maxQueueSize,
 		quit:          make(chan struct{}),
-		cancelMap:     make(map[string]context.CancelFunc),
+		cancelMap:     make(map[string]cancelEntry),
 		pendingMap:    make(map[string]string),
 		staleRunIDs:   make(map[string]bool),
 	}
@@ -87,7 +92,7 @@ func (q *Queue) dispatch() {
 		delete(q.pendingMap, entry.key)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		q.cancelMap[entry.key] = cancel
+		q.cancelMap[entry.key] = cancelEntry{runID: entry.runID, cancel: cancel}
 		q.mu.Unlock()
 
 		select {
@@ -142,8 +147,9 @@ func (q *Queue) StartReview(_ context.Context, p api.ReviewPayload) (*api.StartR
 	var cancelledRunID string
 
 	q.mu.Lock()
-	if cancelFn, ok := q.cancelMap[key]; ok {
-		cancelFn()
+	if e, ok := q.cancelMap[key]; ok {
+		e.cancel()
+		cancelledRunID = e.runID
 		delete(q.cancelMap, key)
 	}
 	if oldRunID, ok := q.pendingMap[key]; ok {

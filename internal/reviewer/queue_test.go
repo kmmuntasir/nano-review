@@ -16,21 +16,70 @@ import (
 )
 
 type blockingRunner struct {
+	mu      sync.Mutex
 	release chan struct{}
+	ready   chan struct{}
 }
 
 func newBlockingRunner() *blockingRunner {
-	return &blockingRunner{release: make(chan struct{})}
+	return &blockingRunner{
+		release: make(chan struct{}),
+		ready:   make(chan struct{}),
+	}
 }
 
-func (r *blockingRunner) Run(_ context.Context, _ string, _ ...string) (string, int, error) {
-	<-r.release
-	return "review complete", 0, nil
+func (r *blockingRunner) waitRelease() chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.release
 }
 
-func (r *blockingRunner) RunStreaming(_ context.Context, _ string, _ io.Writer, _ ...string) (int, error) {
-	<-r.release
-	return 0, nil
+func (r *blockingRunner) markReady() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	select {
+	case <-r.ready:
+	default:
+		close(r.ready)
+	}
+}
+
+func (r *blockingRunner) waitReady() { <-r.ready }
+
+func (r *blockingRunner) Run(ctx context.Context, _ string, _ ...string) (string, int, error) {
+	r.markReady()
+	select {
+	case <-r.waitRelease():
+		return "review complete", 0, nil
+	case <-ctx.Done():
+		return "", -1, ctx.Err()
+	}
+}
+
+func (r *blockingRunner) RunStreaming(ctx context.Context, _ string, _ io.Writer, _ ...string) (int, error) {
+	r.markReady()
+	select {
+	case <-r.waitRelease():
+		return 0, nil
+	case <-ctx.Done():
+		return -1, ctx.Err()
+	}
+}
+
+func (r *blockingRunner) unblock() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	select {
+	case <-r.release:
+	default:
+		close(r.release)
+	}
+}
+
+func (r *blockingRunner) reset() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.release = make(chan struct{})
 }
 
 type countingRunner struct {
@@ -192,7 +241,7 @@ func TestQueue_Enqueue_Accepted(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 2, 4, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -212,7 +261,7 @@ func TestQueue_Enqueue_Queued(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 4, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -238,35 +287,40 @@ func TestQueue_Enqueue_QueueFull(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 1, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
-	// Fill the single concurrent slot.
+	// Fill the single concurrent slot (PR 1).
 	_, err := q.StartReview(context.Background(), payload)
 	if err != nil {
 		t.Fatalf("first enqueue failed: %v", err)
 	}
 	waitForActive(t, q, 1)
 
-	// Fill the pending channel (capacity 1).
-	_, err = q.StartReview(context.Background(), payload)
+	// Fill the pending channel (capacity 1) with different PR to avoid dedup.
+	p2 := payload
+	p2.PRNumber = 2
+	_, err = q.StartReview(context.Background(), p2)
 	if err != nil {
 		t.Fatalf("second enqueue failed: %v", err)
 	}
 
 	// Wait for dispatch to read the second item and block on sem.
-	// After this, pending is empty and dispatch is stuck on sem.
 	time.Sleep(50 * time.Millisecond)
 
-	// Third item goes into pending (1/1).
-	_, err = q.StartReview(context.Background(), payload)
+	// Third item goes into pending (1/1) with yet another PR.
+	p3 := payload
+	p3.PRNumber = 3
+	_, err = q.StartReview(context.Background(), p3)
 	if err != nil {
 		t.Fatalf("third enqueue failed: %v", err)
 	}
 
 	// Fourth: pending full (1/1), dispatch blocked on sem → ErrQueueFull.
-	_, err = q.StartReview(context.Background(), payload)
+	p4 := payload
+	p4.PRNumber = 4
+	_, err = q.StartReview(context.Background(), p4)
 	if err == nil {
 		t.Fatal("expected ErrQueueFull, got nil")
 	}
@@ -281,7 +335,9 @@ func TestQueue_Concurrency(t *testing.T) {
 	q, payload := newTestQueue(t, maxConcurrent, 10, runner)
 
 	for i := 0; i < maxConcurrent+2; i++ {
-		_, err := q.StartReview(context.Background(), payload)
+		p := payload
+		p.PRNumber = i + 1
+		_, err := q.StartReview(context.Background(), p)
 		if err != nil {
 			t.Fatalf("enqueue %d failed: %v", i, err)
 		}
@@ -301,7 +357,7 @@ func TestQueue_DispatchOrder(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -315,7 +371,7 @@ func TestQueue_DispatchOrder(t *testing.T) {
 		t.Fatal("expected non-empty run IDs")
 	}
 
-	close(runner.release)
+	runner.unblock()
 	time.Sleep(100 * time.Millisecond)
 
 	stats := q.Stats()
@@ -324,14 +380,14 @@ func TestQueue_DispatchOrder(t *testing.T) {
 	}
 
 	// Prevent double-close in defer.
-	runner.release = make(chan struct{})
+	runner.reset()
 }
 
 func TestQueue_Stats(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 2, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -383,7 +439,7 @@ func TestQueue_Stop_Waits(t *testing.T) {
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	close(runner.release)
+	runner.unblock()
 
 	select {
 	case <-done:
@@ -396,7 +452,7 @@ func TestQueue_Dedup_CancelRunning(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 2, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -414,8 +470,9 @@ func TestQueue_Dedup_CancelRunning(t *testing.T) {
 		t.Errorf("expected CancelledRunID=%q, got %q", resA.RunID, resB.CancelledRunID)
 	}
 
-	close(runner.release)
-	runner.release = make(chan struct{})
+	// A exits via ctx cancel. B eventually starts and blocks on the same release channel.
+	// Unblock once for B.
+	runner.unblock()
 	waitForIdle(t, q)
 }
 
@@ -423,7 +480,7 @@ func TestQueue_Dedup_SkipStaleQueued(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -446,7 +503,9 @@ func TestQueue_Dedup_SkipStaleQueued(t *testing.T) {
 		t.Errorf("expected C to cancel B (run_id=%q), got cancelled=%q", resB.RunID, resC.CancelledRunID)
 	}
 
-	close(runner.release)
+	// A exits via ctx cancel. B is stale (skipped). C starts and blocks.
+	// Unblock once for C.
+	runner.unblock()
 	waitForIdle(t, q)
 }
 
@@ -454,7 +513,7 @@ func TestQueue_Dedup_DifferentPRs(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 2, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -475,7 +534,7 @@ func TestQueue_Dedup_DifferentPRs(t *testing.T) {
 
 	waitForActive(t, q, 2)
 
-	close(runner.release)
+	runner.unblock()
 	waitForIdle(t, q)
 }
 
@@ -483,7 +542,7 @@ func TestQueue_Dedup_DifferentRepos(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payloadA := newTestQueue(t, 2, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -513,7 +572,7 @@ func TestQueue_Dedup_DifferentRepos(t *testing.T) {
 		t.Errorf("B expected accepted, got %q", resB.Status)
 	}
 
-	close(runner.release)
+	runner.unblock()
 	waitForIdle(t, q)
 }
 
@@ -521,7 +580,7 @@ func TestQueue_Dedup_RapidFire(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -542,7 +601,7 @@ func TestQueue_Dedup_RapidFire(t *testing.T) {
 			results[prevIdx].RunID, results[lastIdx].CancelledRunID)
 	}
 
-	close(runner.release)
+	runner.unblock()
 	waitForIdle(t, q)
 }
 
@@ -551,7 +610,7 @@ func TestQueue_Dedup_CancelledBroadcast(t *testing.T) {
 	bc := &mockBroadcastRecorder{}
 	q, payload := newTestQueueWithBroadcaster(t, 1, 10, runner, bc)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -559,14 +618,20 @@ func TestQueue_Dedup_CancelledBroadcast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("submit A failed: %v", err)
 	}
-	waitForActive(t, q, 1)
+	runner.waitReady()
 
 	_, err = q.StartReview(context.Background(), payload)
 	if err != nil {
 		t.Fatalf("submit B failed: %v", err)
 	}
 
-	close(runner.release)
+	// A's runner is in select. Release channel open, ctx.Done() ready.
+	// A deterministically exits via ctx.Done() → broadcasts cancelled.
+	// maxConcurrent=1: B can't start until A finishes.
+	// Wait for B to become active.
+	waitForActive(t, q, 1)
+
+	runner.unblock()
 	waitForIdle(t, q)
 
 	events := bc.getEvents()
@@ -590,7 +655,7 @@ func TestQueue_Dedup_StatsConsistent(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 10, runner)
 	defer func() {
-		close(runner.release)
+		runner.unblock()
 		q.Stop()
 	}()
 
@@ -603,7 +668,7 @@ func TestQueue_Dedup_StatsConsistent(t *testing.T) {
 	q.StartReview(context.Background(), payload)
 	q.StartReview(context.Background(), payload)
 
-	close(runner.release)
+	runner.unblock()
 	waitForIdle(t, q)
 
 	stats := q.Stats()
