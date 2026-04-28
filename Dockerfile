@@ -38,7 +38,7 @@ COPY --from=builder --chown=appuser:appuser /nano-review /usr/local/bin/nano-rev
 COPY --chown=appuser:appuser config/.claude/ /home/appuser/.claude/
 
 # Install Caveman plugin (standalone — merges hooks into existing settings.json)
-RUN bash <(curl -s https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh)
+RUN curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh | bash
 
 # Verify Node.js and Caveman hooks are present
 RUN node --version && \
