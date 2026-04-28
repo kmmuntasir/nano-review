@@ -175,9 +175,10 @@ WebSocket: `WS_ALLOWED_ORIGINS` (comma-separated, supports `https://*.example.co
 
 ## Docker
 
-Multi-stage build: Go builder (`golang:1.23-bookworm`) → Ubuntu runtime with `git`, `curl`, Claude Code CLI.
+Multi-stage build: Go builder (`golang:1.23-bookworm`) → Ubuntu runtime with `git`, `curl`, Claude Code CLI, Node.js (for Caveman), and RTK.
 - The **builder stage** has the Go toolchain — use this for `go build`, `go test`, `go vet`, etc.
 - The **runtime stage** has only the compiled binary — no Go binary is available for running tests or building.
+- **RTK (Rust Token Killer)** — CLI proxy for token-optimized command output (60-90% savings). Installed via `curl | sh` from GitHub. Requires `jq` for hook operation. The `rtk init` command configures a `PreToolUse` hook that transparently rewrites Bash tool calls to pipe through `rtk` for output minification.
 Compose overlays: `docker-compose.yml` (dev), `docker-compose.staging.yml`, `docker-compose.prod.yml`.
 Log volume: `review-logs:/app/logs` with lumberjack rotation (10MB, 7-day retention).
 Data volume: `review-data:/app/data` for SQLite database (review history).
