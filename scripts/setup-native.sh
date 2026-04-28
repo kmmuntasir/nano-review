@@ -96,6 +96,22 @@ else
     bash <(curl -s https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh)
 fi
 
+# --- Install RTK (Rust Token Killer) ---
+if ! has jq; then
+    echo -e "${YELLOW}Warning: jq not found. RTK hook requires jq. Skipping RTK setup.${NC}"
+    echo "Install jq: https://jqlang.github.io/jq/download/"
+elif ! has rtk; then
+    echo "Installing RTK..."
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    export PATH="$HOME/.local/bin:$PATH"
+    echo "Configuring RTK hook..."
+    rtk init
+    echo -e "${GREEN}RTK installed and configured.${NC}"
+else
+    echo "RTK already installed, running rtk init to ensure hook is configured..."
+    rtk init
+fi
+
 # --- Build ---
 echo ""
 echo "Building nano-review..."
