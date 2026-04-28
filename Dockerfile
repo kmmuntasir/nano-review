@@ -46,7 +46,8 @@ RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/in
 ENV PATH="/home/appuser/.local/bin:${PATH}"
 
 # Configure RTK hook (merges PreToolUse into existing settings.json alongside Caveman)
-RUN rtk init
+RUN rtk init -g --auto-patch && \
+    test -f /home/appuser/.claude/hooks/rtk-rewrite.sh && echo "RTK hook installed"
 
 # Verify Node.js, RTK, and Caveman hooks are present
 RUN node --version && \
