@@ -75,13 +75,15 @@ All diff analysis, file content checks, and code review should happen locally us
 
    Use local tools (Read, Glob, Grep) to examine file contents as needed. You can use the Parallel subagent strategy to speed up this analysis (see below).
 
-5. **Create a pending review via MCP** (FIRST MCP call since step 1): Call `mcp__github__pull_request_review_write` with:
+5. **Fetch existing review comments via MCP** (SECOND MCP call): Call `mcp__github__pull_request_read` with method `get_review_comments` to retrieve all inline review comments already posted on this PR. Build a dedup set: for each existing comment, record `(path, line)` as a key. If the body text clearly addresses the same issue you found (same file, same line, same category of problem), mark it as already-flagged. This is an approximate match — you don't need exact string equality, just same issue at same location.
+
+6. **Create a pending review via MCP** (THIRD MCP call): Call `mcp__github__pull_request_review_write` with:
    - `method`: `create`
    - `owner`, `repo`, `pullNumber` from the prompt
    - Do NOT set `event` — omitting it creates a **pending** review that stays open for inline comments.
-   - If this call fails, fall through to the fallback in step 8.
+   - If this call fails, fall through to the fallback in step 9.
 
-6. **Post inline comments via MCP**: For **EACH** genuine issue found, call `mcp__github__add_comment_to_pending_review` with:
+7. **Post inline comments via MCP** (deduplicated): For **EACH** genuine issue found that is **NOT already flagged** by a previous review (per the dedup set from step 5), call `mcp__github__add_comment_to_pending_review` with:
    - `owner`, `repo`, `pullNumber` from the prompt
    - `path`: the file path from the diff
    - `line`: the relevant line number
@@ -90,15 +92,17 @@ All diff analysis, file content checks, and code review should happen locally us
 
    **CRITICAL**: Each issue MUST get its own inline comment at the exact line where the issue occurs. Do NOT combine multiple issues into a single comment. Do NOT post a summary comment as a substitute for inline comments.
 
-7. **Submit the pending review via MCP**: Call `mcp__github__pull_request_review_write` with:
+   **Deduplication**: If a previous review already posted an inline comment at the same `(path, line)` addressing the same issue, **skip the inline comment**. Do not re-flag. Instead, collect these already-known issues and mention them briefly in the review summary (step 8) — e.g. "3 previously flagged issues remain unaddressed." The goal is to avoid noisy duplicates while still signaling that those issues exist.
+
+8. **Submit the pending review via MCP**: Call `mcp__github__pull_request_review_write` with:
    - `method`: `submit_pending`
    - `owner`, `repo`, `pullNumber` from the prompt
-   - `event`: `REQUEST_CHANGES` if issues were found, `COMMENT` if the PR looks clean
-   - `body`: A BRIEF overall summary only — do NOT repeat all the inline comments here. This should be a high-level note like "Found 5 issues requiring changes" or "LGTM, just minor suggestions."
+   - `event`: `REQUEST_CHANGES` if new or unaddressed issues were found, `COMMENT` if the PR looks clean or only previously-flagged issues remain
+   - `body`: A BRIEF overall summary only. Include: (a) count of new inline comments posted, (b) count of previously-flagged issues that were skipped as duplicates, (c) high-level note like "Found 2 new issues, 3 previously flagged issues remain unaddressed" or "All clear — 1 prior suggestion still pending."
 
-8. **Fallback**: Only if the inline comment tool (`mcp__github__add_comment_to_pending_review`) fails for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
+9. **Fallback**: Only if the inline comment tool (`mcp__github__add_comment_to_pending_review`) fails for any reason, call `mcp__github__add_issue_comment` to post a single summary review comment on the PR.
 
-9. **Final Report**: Finally, respond with a short report including these things:
+10. **Final Report**: Finally, respond with a short report including these things:
    - A very short summary of the review outcome
    - Number of inline comments posted
    - If you posted a summary comment, include the reason why you had to fallback to a summary instead of inline comments
@@ -108,8 +112,8 @@ All diff analysis, file content checks, and code review should happen locally us
 - Be concise. Do not comment on style preferences or formatting that linters handle.
 - Only flag genuine issues. Do not pad the review with trivial observations.
 - Include suggested code fixes in comments where practical.
-- **Minimize GitHub MCP API calls** — Only use MCP for (1) initial verification and (2) posting comments. All diff analysis MUST be done locally using git commands and filesystem tools.
-- Even if the PR already has previous comments, you must still perform your own independent review and post your own comments based on the diff you analyze. Do not rely on or reference existing comments.
+- **Minimize GitHub MCP API calls** — Only use MCP for (1) initial verification, (2) fetching existing comments for dedup, and (3) posting comments. All diff analysis MUST be done locally using git commands and filesystem tools.
+- Perform your own independent review of the diff, but **deduplicate against existing inline comments**. If a previous review already flagged the same issue at the same `(path, line)`, skip the inline comment and mention it briefly in the summary instead. Do not re-post duplicates.
 
 ### INLINE COMMENTS ARE MANDATORY
 - **Each issue gets its own inline comment** at the exact line where it occurs.
