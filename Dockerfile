@@ -19,6 +19,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     && rm -rf /var/lib/apt/lists/*
 
+# Install Node.js 20.x LTS (required by Caveman hooks)
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
 # Create non-root user (Claude Code refuses --dangerously-skip-permissions as root)
 RUN useradd -m -s /bin/bash appuser
 
@@ -31,6 +36,16 @@ COPY --from=builder --chown=appuser:appuser /nano-review /usr/local/bin/nano-rev
 
 # Copy Claude Code configuration
 COPY --chown=appuser:appuser config/.claude/ /home/appuser/.claude/
+
+# Install Caveman plugin (standalone — merges hooks into existing settings.json)
+RUN bash <(curl -s https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh)
+
+# Verify Node.js and Caveman hooks are present
+RUN node --version && \
+    test -f /home/appuser/.claude/hooks/caveman-activate.js && \
+    test -f /home/appuser/.claude/hooks/caveman-mode-tracker.js && \
+    test -f /home/appuser/.claude/hooks/caveman-statusline.sh && \
+    echo "Caveman hooks verified"
 
 # Create log and data directories (needs root to create /app)
 USER root
