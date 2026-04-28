@@ -106,7 +106,7 @@ func (r *countingRunner) Run(_ context.Context, _ string, _ ...string) (string, 
 }
 
 func (r *countingRunner) RunStreaming(_ context.Context, _ string, _ io.Writer, _ ...string) (int, error) {
-	r.Run(context.Background(), "")
+	_, _, _ = r.Run(context.Background(), "")
 	return 0, nil
 }
 
@@ -140,7 +140,7 @@ func initGitRepo(t *testing.T) string {
 
 func runCmd(name string, args ...string) {
 	cmd := exec.Command(name, args...)
-	cmd.CombinedOutput()
+	_, _ = cmd.CombinedOutput()
 }
 
 func newTestQueue(t *testing.T, maxConcurrent, maxQueueSize int, runner ClaudeRunner) (*Queue, api.ReviewPayload) {
@@ -408,7 +408,7 @@ func TestQueue_Stats(t *testing.T) {
 		t.Errorf("expected non-negative uptime, got %d", stats.UptimeSeconds)
 	}
 
-	q.StartReview(context.Background(), payload)
+	_, _ = q.StartReview(context.Background(), payload)
 	waitForActive(t, q, 1)
 
 	stats = q.Stats()
@@ -665,8 +665,8 @@ func TestQueue_Dedup_StatsConsistent(t *testing.T) {
 	}
 	waitForActive(t, q, 1)
 
-	q.StartReview(context.Background(), payload)
-	q.StartReview(context.Background(), payload)
+	_, _ = q.StartReview(context.Background(), payload)
+	_, _ = q.StartReview(context.Background(), payload)
 
 	runner.unblock()
 	waitForIdle(t, q)
