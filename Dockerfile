@@ -17,6 +17,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     git \
+    jq \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 20.x LTS (required by Caveman hooks)
@@ -39,6 +40,10 @@ COPY --chown=appuser:appuser config/.claude/ /home/appuser/.claude/
 
 # Install Caveman plugin (standalone — merges hooks into existing settings.json)
 RUN curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh | bash
+
+# Install RTK (Rust Token Killer) — token-optimized CLI proxy
+RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+ENV PATH="/home/appuser/.local/bin:${PATH}"
 
 # Verify Node.js and Caveman hooks are present
 RUN node --version && \
