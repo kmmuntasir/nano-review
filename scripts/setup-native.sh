@@ -87,6 +87,15 @@ copy_config() {
 copy_config "config/.claude/skills/pr-review/SKILL.md" "$HOME/.claude/skills/pr-review/SKILL.md" "pr-review skill"
 copy_config "config/.claude/settings.json" "$HOME/.claude/settings.json" "Claude settings"
 
+# --- Install Caveman plugin ---
+if ! has node; then
+    echo -e "${YELLOW}Warning: Node.js not found. Caveman plugin requires Node.js. Skipping.${NC}"
+    echo "Install Node.js 20.x LTS: https://nodejs.org/"
+else
+    echo "Installing Caveman plugin..."
+    bash <(curl -s https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh)
+fi
+
 # --- Build ---
 echo ""
 echo "Building nano-review..."
