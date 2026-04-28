@@ -45,12 +45,17 @@ RUN curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hook
 RUN curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
 ENV PATH="/home/appuser/.local/bin:${PATH}"
 
-# Verify Node.js and Caveman hooks are present
+# Configure RTK hook (merges PreToolUse into existing settings.json alongside Caveman)
+RUN rtk init
+
+# Verify Node.js, RTK, and Caveman hooks are present
 RUN node --version && \
+    rtk --version && \
+    test -f /home/appuser/.claude/hooks/rtk-rewrite.sh && \
     test -f /home/appuser/.claude/hooks/caveman-activate.js && \
     test -f /home/appuser/.claude/hooks/caveman-mode-tracker.js && \
     test -f /home/appuser/.claude/hooks/caveman-statusline.sh && \
-    echo "Caveman hooks verified"
+    echo "Caveman + RTK hooks verified"
 
 # Create log and data directories (needs root to create /app)
 USER root
