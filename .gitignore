@@ -46,6 +46,7 @@ data/
 
 # Runtime MCP config (may contain tokens)
 /app/mcp-config.json
+mcp-config.json
 
 # AI generated docs (keep README.md)
 docs/ai_generated/*
