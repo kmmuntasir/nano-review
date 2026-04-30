@@ -170,7 +170,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	// Install skills into the temp working directory so Claude Code discovers them.
 	// Claude discovers skills from <cwd>/.claude/skills/, not from ~/.claude/skills/.
 	if w.skillsDir != "" {
-		if err := w.installSkills(dir); err != nil {
+		if err = w.installSkills(dir); err != nil {
 			logger.Error("failed to install skills", "error", err)
 		} else {
 			logger.Info("skills installed", "source", w.skillsDir, "dest", filepath.Join(dir, ".claude", "skills"))
