@@ -136,8 +136,12 @@ function setupReviewsPageWebSocketHandlers() {
     }
 
     reviewsPageState.onReviewUpdate = function(msg) {
-        var reviewData = msg.review;
-        if (!reviewData) return;
+        var reviewData = msg.review || {
+            run_id: msg.run_id,
+            status: msg.status,
+            conclusion: msg.conclusion,
+            duration_ms: msg.duration_ms
+        };
 
         var runId = reviewData.run_id;
         var statusFilter = reviewsPageState.status;

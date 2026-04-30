@@ -93,7 +93,12 @@ function setupDashboardWebSocketHandlers() {
     }
 
     dashboardState.onReviewUpdate = function(msg) {
-        var reviewData = msg.review;
+        var reviewData = msg.review || {
+            run_id: msg.run_id,
+            status: msg.status,
+            conclusion: msg.conclusion,
+            duration_ms: msg.duration_ms
+        };
         var newStatus = msg.status;
 
         if (reviewData) {
