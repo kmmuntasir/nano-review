@@ -128,7 +128,8 @@ func (m *mockQueueStore) GetMetrics(_ context.Context) (*storage.Metrics, error)
 func (m *mockQueueStore) FindActiveReview(_ context.Context, _ string, _ int) (*storage.ReviewRecord, error) {
 	return nil, storage.ErrNotFound
 }
-func (m *mockQueueStore) Close() error { return nil }
+func (m *mockQueueStore) CleanupStaleReviews(_ context.Context) (int64, error) { return 0, nil }
+func (m *mockQueueStore) Close() error                                         { return nil }
 
 func initGitRepo(t *testing.T) string {
 	t.Helper()

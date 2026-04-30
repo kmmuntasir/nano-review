@@ -1,11 +1,13 @@
 package storage
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -56,6 +58,15 @@ func Open(dbPath string) (*sqliteStore, error) {
 	}
 
 	return &sqliteStore{db: db}, nil
+}
+
+func (s *sqliteStore) CleanupStaleReviews(ctx context.Context) (int64, error) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	result, err := s.db.ExecContext(ctx, cleanupStaleSQL, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
 }
 
 func (s *sqliteStore) Close() error {

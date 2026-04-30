@@ -8,6 +8,10 @@ import (
 	"time"
 )
 
+const cleanupStaleSQL = `UPDATE reviews
+SET status = 'cancelled', conclusion = 'cancelled', completed_at = ?
+WHERE status IN ('running', 'pending', 'queued') AND completed_at IS NULL`
+
 func (s *sqliteStore) CreateReview(ctx context.Context, r ReviewRecord) error {
 	query := `INSERT OR IGNORE INTO reviews (run_id, repo, pr_number, base_branch, head_branch, status, created_at)
 	              VALUES (?, ?, ?, ?, ?, ?, ?)`

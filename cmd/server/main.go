@@ -336,6 +336,13 @@ func main() {
 	defer func() { _ = store.Close() }()
 	slog.Info("database initialized", "path", dbPath)
 
+	cleaned, err := store.CleanupStaleReviews(context.Background())
+	if err != nil {
+		slog.Error("failed to cleanup stale reviews", "error", err)
+	} else if cleaned > 0 {
+		slog.Info("cleaned up stale reviews from previous session", "count", cleaned)
+	}
+
 	hub := api.NewHub()
 
 	var wsAllowedOrigins []string

@@ -71,5 +71,6 @@ type ReviewStore interface {
 	ListReviews(ctx context.Context, f ListFilter) ([]ReviewRecord, error)
 	GetMetrics(ctx context.Context) (*Metrics, error)
 	FindActiveReview(ctx context.Context, repo string, prNumber int) (*ReviewRecord, error)
+	CleanupStaleReviews(ctx context.Context) (int64, error)
 	Close() error
 }
