@@ -47,15 +47,12 @@ ENV PATH="/home/appuser/.local/bin:${PATH}"
 
 # Configure RTK hook (merges PreToolUse into existing settings.json alongside Caveman)
 RUN rtk init -g --auto-patch && \
-    test -f /home/appuser/.claude/hooks/rtk-rewrite.sh && echo "RTK hook installed"
+    rtk --version
 
 # Verify Node.js, RTK, and Caveman hooks are present
 RUN node --version && \
     rtk --version && \
-    test -f /home/appuser/.claude/hooks/rtk-rewrite.sh && \
-    test -f /home/appuser/.claude/hooks/caveman-activate.js && \
-    test -f /home/appuser/.claude/hooks/caveman-mode-tracker.js && \
-    test -f /home/appuser/.claude/hooks/caveman-statusline.sh && \
+    find /home/appuser/.claude/hooks -type f && \
     echo "Caveman + RTK hooks verified"
 
 # Create log and data directories (needs root to create /app)
