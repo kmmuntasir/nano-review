@@ -55,19 +55,19 @@ function leftColContent(r) {
 }
 
 function renderStreamingView(runId, review) {
-    var html = '<div class="detail-layout">';
-    
+    var html = '<div class="detail-layout" style="height:calc(100vh - 112px)">';
+
     html += leftColContent(review);
     
-    html += '<div class="detail-col-right">' +
+    html += '<div class="detail-col-right" style="min-height:0">' +
         '<div class="detail-header">' +
         '<h1 style="visibility:hidden; font-size:22px; margin:0;">Live Log</h1>' + // balance height
         '<button class="btn" style="display:flex; align-items:center; gap:8px;" onclick="location.hash=\'#/reviews\'"><i class="ph ph-arrow-left"></i> Back</button>' +
         '</div>' +
-        '<div class="output-section" style="flex:1; display:flex; flex-direction:column;">' +
+        '<div class="output-section" style="flex:1; min-height:0; display:flex; flex-direction:column;">' +
         '<div class="output-header" style="padding:20px;"><h2 style="font-size:17px; font-weight:600; margin:0; display:flex; align-items:center; gap:8px;"><span class="streaming-indicator" id="live-indicator"></span>Live Analysis Log</h2></div>' +
-        '<div style="padding:20px; flex:1; display:flex; flex-direction:column;">' +
-        '<div class="output-body" id="stream-output" style="flex:1; background:var(--code-bg); border:1px solid var(--border); border-radius:8px; position:relative;">' +
+        '<div style="padding:20px; flex:1; min-height:0; display:flex; flex-direction:column;">' +
+        '<div class="output-body" id="stream-output" style="flex:1; min-height:0; overflow-y:auto; background:var(--code-bg); border:1px solid var(--border); border-radius:8px; position:relative;">' +
         '<div class="stream-content" id="stream-content" style="padding:20px;">Waiting for output...</div>' +
         '<button class="scroll-bottom-btn" id="scroll-bottom" onclick="document.getElementById(\'stream-output\').scrollTop=999999">&#8595;</button>' +
         '</div></div></div></div>';

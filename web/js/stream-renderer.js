@@ -208,6 +208,7 @@ StreamRenderer.prototype._renderBlockDelta = function(data) {
             md.innerHTML = renderMarkdown(self.accumulatedMarkdown[capturedIdx]);
             md.classList.add("stream-marking-cursor");
             self._highlightCodeBlocks(md);
+            self._autoScroll();
         }, 200);
 
     } else if (data.blockType === "thinking") {
@@ -257,6 +258,7 @@ StreamRenderer.prototype._renderBlockDelta = function(data) {
             var blk = self.parser.blocks[capturedIdx];
             if (!blk) return;
             p.textContent = self._formatToolInput(blk.name, blk.accumulated);
+            self._autoScroll();
         }, 300);
     }
 };
