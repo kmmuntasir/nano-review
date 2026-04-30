@@ -46,7 +46,7 @@ type ReviewRecord struct {
 
 // ListFilter specifies optional filters for listing reviews.
 type ListFilter struct {
-	Repo   string
+	Search string
 	Status ReviewStatus
 	Limit  int
 	Offset int

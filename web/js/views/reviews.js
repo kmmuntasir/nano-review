@@ -60,7 +60,7 @@ function renderReviewsPageContent() {
         '<option value="timed_out"' + (reviewsPageState.status === "timed_out" ? " selected" : "") + '>Timed out</option>' +
         '<option value="cancelled"' + (reviewsPageState.status === "cancelled" ? " selected" : "") + '>Cancelled</option>' +
         '</select>' +
-        '<input type="text" id="repo-filter" placeholder="Repos..." value="' + esc(reviewsPageState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
+        '<input type="text" id="repo-filter" placeholder="Repo, PR# or branch..." value="' + esc(reviewsPageState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
         '<button class="btn btn-primary" onclick="window.__applyFilter()"><i class="ph ph-faders"></i> Filter</button>' +
         '</div></div>';
 
@@ -154,8 +154,13 @@ function setupReviewsPageWebSocketHandlers() {
             }
             return;
         }
-        if (repoFilter && reviewData.repo.toLowerCase().indexOf(repoFilter.toLowerCase()) === -1) {
-            return;
+        if (repoFilter) {
+            var q = repoFilter.toLowerCase();
+            var matchRepo = (reviewData.repo || "").toLowerCase().indexOf(q) !== -1;
+            var matchPR = String(reviewData.pr_number || "").indexOf(q) !== -1;
+            var matchBase = (reviewData.base_branch || "").toLowerCase().indexOf(q) !== -1;
+            var matchHead = (reviewData.head_branch || "").toLowerCase().indexOf(q) !== -1;
+            if (!matchRepo && !matchPR && !matchBase && !matchHead) return;
         }
 
         // Update existing or prepend new

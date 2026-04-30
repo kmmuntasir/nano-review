@@ -98,7 +98,7 @@ type ReviewGetter interface {
 func HandleListReviews(getter ReviewGetter) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		f := storage.ListFilter{
-			Repo:   r.URL.Query().Get("repo"),
+			Search: r.URL.Query().Get("repo"),
 			Status: storage.ReviewStatus(r.URL.Query().Get("status")),
 		}
 		if v := r.URL.Query().Get("limit"); v != "" {

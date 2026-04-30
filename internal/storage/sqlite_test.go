@@ -158,7 +158,7 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r2", Repo: "owner/b.git", PRNumber: 2, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
 	_ = store.CreateReview(ctx, ReviewRecord{RunID: "r3", Repo: "owner/a.git", PRNumber: 3, BaseBranch: "main", HeadBranch: "f", CreatedAt: now})
 
-	records, err := store.ListReviews(ctx, ListFilter{Repo: "owner/a.git"})
+	records, err := store.ListReviews(ctx, ListFilter{Search: "owner/a.git"})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
@@ -167,7 +167,7 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	}
 
 	// Substring match — partial repo name should still work.
-	records, err = store.ListReviews(ctx, ListFilter{Repo: "a.git"})
+	records, err = store.ListReviews(ctx, ListFilter{Search: "a.git"})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	}
 
 	// No match.
-	records, err = store.ListReviews(ctx, ListFilter{Repo: "no-such-repo"})
+	records, err = store.ListReviews(ctx, ListFilter{Search: "no-such-repo"})
 	if err != nil {
 		t.Fatalf("ListReviews failed: %v", err)
 	}

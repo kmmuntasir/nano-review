@@ -157,13 +157,21 @@ func (c *claudeCLI) RunStreaming(ctx context.Context, dir string, streamWriter i
 	return exitCode, nil
 }
 
-// resolveMCPConfigPath returns the path for the Claude Code MCP config file.
+// resolveMCPConfigPath returns the absolute path for the Claude Code MCP config file.
 // Override with NANO_DATA_DIR, defaults to /app/mcp-config.json.
+// The path is resolved to absolute because Claude Code runs with a different CWD.
 func resolveMCPConfigPath() string {
+	var p string
 	if dir := os.Getenv("NANO_DATA_DIR"); dir != "" {
-		return filepath.Join(dir, "mcp-config.json")
+		p = filepath.Join(dir, "mcp-config.json")
+	} else {
+		p = "/app/mcp-config.json"
 	}
-	return "/app/mcp-config.json"
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return p
+	}
+	return abs
 }
 
 // resolveLogPath returns the full path for a log file.

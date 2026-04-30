@@ -76,9 +76,10 @@ func (s *sqliteStore) ListReviews(ctx context.Context, f ListFilter) ([]ReviewRe
 	var conditions []string
 	var args []any
 
-	if f.Repo != "" {
-		conditions = append(conditions, "repo LIKE ?")
-		args = append(args, "%"+f.Repo+"%")
+	if f.Search != "" {
+		conditions = append(conditions, "(repo LIKE ? OR CAST(pr_number AS TEXT) LIKE ? OR base_branch LIKE ? OR head_branch LIKE ?)")
+		pattern := "%" + f.Search + "%"
+		args = append(args, pattern, pattern, pattern, pattern)
 	}
 	if f.Status != "" {
 		conditions = append(conditions, "status = ?")
