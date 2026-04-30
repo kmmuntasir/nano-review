@@ -100,6 +100,7 @@
         }
 
         .header-left { gap: 32px; }
+        .header-right { gap: 8px; }
 
         .app-header .brand {
             font-weight: 600;
@@ -131,7 +132,7 @@
 
         .theme-toggle {
             background: none;
-            border: 1px solid transparent;
+            border: 1px solid var(--border);
             border-radius: 6px;
             padding: 6px;
             cursor: pointer;
@@ -140,9 +141,11 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: color 0.15s, border-color 0.15s;
+            width: 36px;
+            height: 36px;
+            transition: background 0.15s, color 0.15s;
         }
-        .theme-toggle:hover { color: var(--text); border-color: var(--border); }
+        .theme-toggle:hover { color: var(--text); background: var(--surface); }
 
         .auth-nav {
             margin-left: auto;
