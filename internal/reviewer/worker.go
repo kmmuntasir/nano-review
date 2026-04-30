@@ -161,8 +161,13 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 	logger.Info("git clone started")
 	err = w.cloneRepo(reviewCtx, p, repoDir)
 	if err != nil {
-		logger.Error("git clone failed", "error", err)
-		w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
+		if reviewCtx.Err() != nil {
+			logger.Error("review cancelled during clone", "error", err)
+			w.recordResult(ctx, runID, startTime, storage.StatusCancelled, storage.ConclusionCancelled, 0, 0, "")
+		} else {
+			logger.Error("git clone failed", "error", err)
+			w.recordResult(ctx, runID, startTime, storage.StatusFailed, storage.ConclusionFailure, 0, 0, "")
+		}
 		return
 	}
 	logger.Info("git clone completed")
