@@ -51,7 +51,7 @@ function renderReviewsPageContent() {
         '<h2>Refined Review History List</h2>' +
         '<div class="filters">' +
         '<select id="status-filter" onchange="window.__applyFilter()">' +
-        '<option value="">Status</option>' +
+        '<option value="">All Status</option>' +
         '<option value="pending"' + (reviewsPageState.status === "pending" ? " selected" : "") + '>Pending</option>' +
         '<option value="queued"' + (reviewsPageState.status === "queued" ? " selected" : "") + '>Queued</option>' +
         '<option value="running"' + (reviewsPageState.status === "running" ? " selected" : "") + '>Running</option>' +
