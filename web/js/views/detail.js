@@ -1,6 +1,6 @@
 import ws from "../ws.js";
 import api from "../api.js";
-import { esc, truncate, formatDuration, badgeClass, formatDate, basename } from "../utils.js";
+import { esc, truncate, formatDuration, badgeClass, formatDate, basename, repoGitHubUrl, prUrl } from "../utils.js";
 import StreamRenderer from "../stream-renderer.js";
 import { renderMarkdown } from "../markdown.js";
 
@@ -33,8 +33,8 @@ function renderStreamingView(runId, review) {
         '</div>';
 
     html += '<div class="meta-grid" id="detail-meta">' +
-        metaCard("Repo", basename(review.repo)) +
-        metaCard("PR Number", "#" + (review.pr_number || "-")) +
+        metaCardLinked("Repo", repoGitHubUrl(review.repo), basename(review.repo)) +
+        metaCardLinked("PR Number", prUrl(review.repo, review.pr_number), "#" + (review.pr_number || "-")) +
         metaCard("Status", review.status) +
         metaCard("Base Branch", review.base_branch || "-") +
         metaCard("Head Branch", review.head_branch || "-") +
@@ -104,8 +104,8 @@ function renderDetailContent(r, streamOutput) {
         '</div>';
 
     html += '<div class="meta-grid">' +
-        metaCard("Repo", basename(r.repo)) +
-        metaCard("PR Number", "#" + (r.pr_number || "-")) +
+        metaCardLinked("Repo", repoGitHubUrl(r.repo), basename(r.repo)) +
+        metaCardLinked("PR Number", prUrl(r.repo, r.pr_number), "#" + (r.pr_number || "-")) +
         metaCard("Status", r.status) +
         metaCard("Conclusion", r.conclusion || "-") +
         metaCard("Base Branch", r.base_branch || "-") +
@@ -152,6 +152,11 @@ function renderDetailContent(r, streamOutput) {
 
 function metaCard(label, value) {
     return '<div class="meta-card"><div class="label">' + esc(label) + '</div><div class="value">' + esc(String(value)) + '</div></div>';
+}
+
+function metaCardLinked(label, href, text) {
+    if (!href) return metaCard(label, text);
+    return '<div class="meta-card"><div class="label">' + esc(label) + '</div><div class="value"><a href="' + esc(href) + '" target="_blank" rel="noopener">' + esc(String(text)) + '</a></div></div>';
 }
 
 export { renderReviewDetail };

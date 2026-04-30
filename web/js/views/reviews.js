@@ -1,6 +1,6 @@
 import ws from "../ws.js";
 import api from "../api.js";
-import { esc, truncate, basename, formatDuration, formatDate, badgeClass } from "../utils.js";
+import { esc, truncate, basename, formatDuration, formatDate, badgeClass, repoGitHubUrl, prUrl, timeAgo } from "../utils.js";
 
 var app = document.getElementById("app");
 
@@ -70,7 +70,7 @@ function renderReviewsPageContent() {
         html += '<div class="empty">No reviews found</div>';
     } else {
         html += '<table><thead><tr>' +
-            '<th>Run ID</th><th>Repo</th><th>PR #</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
+            '<th>Repo</th><th>PR</th><th>Branch</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
             '</tr></thead><tbody id="reviews-table-body">';
         reviewsPageState.reviews.forEach(function(r) {
             html += reviewRow(r);
@@ -84,13 +84,38 @@ function renderReviewsPageContent() {
 }
 
 function reviewRow(r) {
+    var repoUrl = repoGitHubUrl(r.repo);
+    var link = prUrl(r.repo, r.pr_number);
+    var repoCell = repoUrl
+        ? '<a href="' + esc(repoUrl) + '" target="_blank" rel="noopener" class="repo-link">' + esc(basename(r.repo)) + '</a>'
+        : esc(basename(r.repo));
+    var prCell = link
+        ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="pr-link">#' + (r.pr_number || '-') + '</a>'
+        : (r.pr_number || '-');
+
+    var branchCell = '-';
+    if (r.head_branch || r.base_branch) {
+        var head = r.head_branch ? esc(truncate(r.head_branch, 20)) : '?';
+        var base = r.base_branch ? esc(r.base_branch) : '?';
+        branchCell = '<span class="branch-display"><span class="branch-head">' + head + '</span><span class="branch-arrow">→</span><span class="branch-base">' + base + '</span></span>';
+    }
+
+    var conclusionDot = '';
+    if (r.conclusion === 'success') {
+        conclusionDot = '<span class="conclusion-dot conclusion-dot--success" title="success"></span>';
+    } else if (r.conclusion === 'failure' || r.conclusion === 'error') {
+        conclusionDot = '<span class="conclusion-dot conclusion-dot--failure" title="failed"></span>';
+    }
+
+    var timeCell = '<span class="time-ago" title="' + esc(formatDate(r.created_at)) + '">' + esc(timeAgo(r.created_at)) + '</span>';
+
     return '<tr>' +
-        '<td><span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span></td>' +
-        '<td>' + esc(basename(r.repo)) + '</td>' +
-        '<td>' + (r.pr_number || '-') + '</td>' +
-        '<td><span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
+        '<td>' + repoCell + '</td>' +
+        '<td>' + prCell + '</td>' +
+        '<td>' + branchCell + '</td>' +
+        '<td>' + conclusionDot + '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
         '<td>' + formatDuration(r.duration_ms) + '</td>' +
-        '<td>' + formatDate(r.created_at) + '</td>' +
+        '<td>' + timeCell + '</td>' +
         '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
         '</tr>';
 }

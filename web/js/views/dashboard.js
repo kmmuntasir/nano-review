@@ -1,6 +1,6 @@
 import ws from "../ws.js";
 import api from "../api.js";
-import { esc, truncate, basename, formatDuration, formatPercent, badgeClass } from "../utils.js";
+import { esc, truncate, basename, formatDuration, formatPercent, badgeClass, repoGitHubUrl, prUrl } from "../utils.js";
 
 let dashboardState = {
     metrics: null,
@@ -217,12 +217,19 @@ function activeReviewsSection(queued, pending, running) {
 
     var html = '<div class="active-reviews">';
     all.forEach(function(r) {
+        var ru = repoGitHubUrl(r.repo);
+        var pl = prUrl(r.repo, r.pr_number);
+        var repoSpan = ru
+            ? '<a href="' + esc(ru) + '" target="_blank" rel="noopener" class="repo-link">' + esc(basename(r.repo)) + '</a>'
+            : '<span>' + esc(basename(r.repo)) + '</span>';
+        var prSpan = pl
+            ? '<a href="' + esc(pl) + '" target="_blank" rel="noopener" class="pr-link">#' + (r.pr_number || '-') + '</a>'
+            : '<span>#' + (r.pr_number || '-') + '</span>';
         html += '<div class="active-review-card">' +
             '<span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span>' +
             '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
             '<div class="review-info">' +
-            '<span>' + esc(basename(r.repo)) + '</span>' +
-            '<span>#' + (r.pr_number || '-') + '</span>' +
+            repoSpan + prSpan +
             '</div>' +
             '<span>' + formatDuration(r.duration_ms) + '</span>' +
             '<a href="#/reviews/' + r.run_id + '" class="view-link">View</a>' +
@@ -279,12 +286,19 @@ function updateActiveReviews() {
 
     var html = "";
     all.forEach(function(r) {
+        var ru = repoGitHubUrl(r.repo);
+        var pl = prUrl(r.repo, r.pr_number);
+        var repoSpan = ru
+            ? '<a href="' + esc(ru) + '" target="_blank" rel="noopener" class="repo-link">' + esc(basename(r.repo)) + '</a>'
+            : '<span>' + esc(basename(r.repo)) + '</span>';
+        var prSpan = pl
+            ? '<a href="' + esc(pl) + '" target="_blank" rel="noopener" class="pr-link">#' + (r.pr_number || '-') + '</a>'
+            : '<span>#' + (r.pr_number || '-') + '</span>';
         html += '<div class="active-review-card">' +
             '<span class="run-id">' + esc(truncate(r.run_id, 8)) + '</span>' +
             '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span>' +
             '<div class="review-info">' +
-            '<span>' + esc(basename(r.repo)) + '</span>' +
-            '<span>#' + (r.pr_number || '-') + '</span>' +
+            repoSpan + prSpan +
             '</div>' +
             '<span>' + formatDuration(r.duration_ms) + '</span>' +
             '<a href="#/reviews/' + r.run_id + '" class="view-link">View</a>' +
