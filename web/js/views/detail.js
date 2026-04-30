@@ -1,6 +1,6 @@
 import ws from "../ws.js";
 import api from "../api.js";
-import { esc, truncate, formatDuration, badgeClass, formatDate, basename, repoGitHubUrl, prUrl } from "../utils.js";
+import { esc, truncate, formatDuration, badgeClass, formatDetailedDate, basename, repoGitHubUrl, prUrl } from "../utils.js";
 import StreamRenderer from "../stream-renderer.js";
 import { renderMarkdown } from "../markdown.js";
 
@@ -40,7 +40,7 @@ function leftColContent(r) {
         '<div style="display:grid; grid-template-columns: 1fr; gap:12px;">' +
         '<div><div class="label" style="font-size:11px; margin-bottom:6px;">REPO:</div><div style="font-size:14px; display:flex; align-items:center; gap:6px;"><i class="ph ph-github-logo text-lg text-text-secondary"></i>' + (repoGitHubUrl(r.repo) ? '<a href="'+esc(repoGitHubUrl(r.repo))+'" target="_blank" style="color:var(--text); font-weight:500; text-decoration:none;">'+esc(basename(r.repo))+'</a>' : '<span style="color:var(--text); font-weight:500;">'+esc(basename(r.repo))+'</span>') + '</div></div>' +
         '<div><div class="label" style="font-size:11px; margin-bottom:6px;">BRANCH:</div><div style="font-size:14px; font-weight:500; color:var(--text); display:flex; align-items:center; gap:6px;">' + esc(r.base_branch||'-') + ' <i class="ph ph-arrow-left" style="color:var(--text-secondary)"></i> ' + esc(truncate(r.head_branch||'-', 12)) + '</div></div>' +
-        '<div><div class="label" style="font-size:11px; margin-bottom:6px;">CREATED:</div><div style="font-size:14px; font-weight:500; color:var(--text);">' + esc(formatDate(r.created_at)) + '</div></div>' +
+        '<div><div class="label" style="font-size:11px; margin-bottom:6px;">CREATED:</div><div style="font-size:14px; font-weight:500; color:var(--text);">' + esc(formatDetailedDate(r.created_at)) + '</div></div>' +
         '</div>' +
         '</div>';
 

@@ -34,6 +34,49 @@ export function formatDate(iso) {
     return d.toLocaleString();
 }
 
+export function formatDetailedDate(iso) {
+    if (!iso) return "-";
+    var now = Date.now();
+    var d = new Date(iso);
+    var then = d.getTime();
+    var diff = Math.floor((now - then) / 1000);
+    
+    if (diff < 0) diff = 0;
+    
+    if (diff < 86400) {
+        var today = new Date(now);
+        if (today.getDate() !== d.getDate()) {
+            return "yesterday";
+        }
+        if (diff < 60) return "just now";
+        if (diff < 3600) {
+            var m = Math.floor(diff / 60);
+            return m + (m === 1 ? " minute ago" : " minutes ago");
+        }
+        var h = Math.floor(diff / 3600);
+        return h + (h === 1 ? " hour ago" : " hours ago");
+    }
+    
+    var months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+    var month = months[d.getMonth()];
+    var day = d.getDate();
+    if (day < 10) day = "0" + day;
+    var year = d.getFullYear();
+    
+    var hoursStr = d.getHours();
+    var ampm = hoursStr >= 12 ? "pm" : "am";
+    hoursStr = hoursStr % 12;
+    if (hoursStr === 0) hoursStr = 12;
+    
+    var minsStr = d.getMinutes();
+    if (minsStr < 10) minsStr = "0" + minsStr;
+    
+    var secsStr = d.getSeconds();
+    if (secsStr < 10) secsStr = "0" + secsStr;
+    
+    return month + " " + day + ", " + year + ", " + hoursStr + ":" + minsStr + ":" + secsStr + " " + ampm;
+}
+
 export function formatPercent(part, total) {
     if (!total) return "0%";
     return Math.round((part / total) * 100) + "%";

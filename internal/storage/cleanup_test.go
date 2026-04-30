@@ -48,9 +48,9 @@ func TestCleanupStaleReviews(t *testing.T) {
 
 	assertStatus := func(runID, wantStatus string) {
 		var status string
-		err := store.db.QueryRowContext(ctx, `SELECT status FROM reviews WHERE run_id = ?`, runID).Scan(&status)
-		if err != nil {
-			t.Fatalf("query status for %s: %v", runID, err)
+		queryErr := store.db.QueryRowContext(ctx, `SELECT status FROM reviews WHERE run_id = ?`, runID).Scan(&status)
+		if queryErr != nil {
+			t.Fatalf("query status for %s: %v", runID, queryErr)
 		}
 		if status != wantStatus {
 			t.Errorf("run %s: status = %q, want %q", runID, status, wantStatus)
