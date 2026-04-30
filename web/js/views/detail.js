@@ -37,7 +37,7 @@ function leftColContent(r) {
         '<h2 style="font-size:17px; font-weight:600; margin:0; color:var(--text);">PR Summary</h2>' +
         '<span class="' + badgeClass(r.status) + '" id="detail-status" style="font-size:10px; text-transform:uppercase; letter-spacing:0.1em; padding:2px 8px;">' + esc(r.status) + '</span>' +
         '</div>' +
-        '<div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:16px;">' +
+        '<div style="display:grid; grid-template-columns: 1fr; gap:12px;">' +
         '<div><div class="label" style="font-size:11px; margin-bottom:6px;">REPO:</div><div style="font-size:14px; display:flex; align-items:center; gap:6px;"><i class="ph ph-github-logo text-lg text-text-secondary"></i>' + (repoGitHubUrl(r.repo) ? '<a href="'+esc(repoGitHubUrl(r.repo))+'" target="_blank" style="color:var(--text); font-weight:500; text-decoration:none;">'+esc(basename(r.repo))+'</a>' : '<span style="color:var(--text); font-weight:500;">'+esc(basename(r.repo))+'</span>') + '</div></div>' +
         '<div><div class="label" style="font-size:11px; margin-bottom:6px;">BRANCH:</div><div style="font-size:14px; font-weight:500; color:var(--text); display:flex; align-items:center; gap:6px;">' + esc(r.base_branch||'-') + ' <i class="ph ph-arrow-left" style="color:var(--text-secondary)"></i> ' + esc(truncate(r.head_branch||'-', 12)) + '</div></div>' +
         '<div><div class="label" style="font-size:11px; margin-bottom:6px;">CREATED:</div><div style="font-size:14px; font-weight:500; color:var(--text);">' + esc(formatDate(r.created_at)) + '</div></div>' +
@@ -67,7 +67,7 @@ function renderStreamingView(runId, review) {
         '<div class="output-section" style="flex:1; display:flex; flex-direction:column;">' +
         '<div class="output-header" style="padding:20px;"><h2 style="font-size:17px; font-weight:600; margin:0; display:flex; align-items:center; gap:8px;"><span class="streaming-indicator" id="live-indicator"></span>Live Analysis Log</h2></div>' +
         '<div style="padding:20px; flex:1; display:flex; flex-direction:column;">' +
-        '<div class="output-body" id="stream-output" style="flex:1; overflow:auto; background:var(--code-bg); border:1px solid var(--border); border-radius:8px; position:relative;">' +
+        '<div class="output-body" id="stream-output" style="flex:1; background:var(--code-bg); border:1px solid var(--border); border-radius:8px; position:relative;">' +
         '<div class="stream-content" id="stream-content" style="padding:20px;">Waiting for output...</div>' +
         '<button class="scroll-bottom-btn" id="scroll-bottom" onclick="document.getElementById(\'stream-output\').scrollTop=999999">&#8595;</button>' +
         '</div></div></div></div>';
@@ -138,7 +138,7 @@ function renderDetailContent(r, streamOutput) {
         (streamOutput && streamOutput.length > 2000 ? "Expand" : "Collapse") +
         '</button></div>' +
         '<div style="padding:20px; flex:1; display:flex; flex-direction:column;">' +
-        '<div class="output-body' + (streamOutput && streamOutput.length > 2000 ? ' collapsed' : '') + '" id="stream-output" style="flex:1; overflow:auto; background:var(--code-bg); border:1px solid var(--border); border-radius:8px;">';
+        '<div class="output-body' + (streamOutput && streamOutput.length > 2000 ? ' collapsed' : '') + '" id="stream-output" style="flex:1; background:var(--code-bg); border:1px solid var(--border); border-radius:8px;">';
 
     if (isStructured) {
         html += '<div class="stream-content" id="stream-content" style="padding:20px;"></div>';

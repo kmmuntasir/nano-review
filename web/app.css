@@ -275,6 +275,11 @@
             max-width: 1200px;
             margin: 0 auto;
             padding: 24px;
+            transition: max-width 0.3s ease;
+        }
+
+        .container.container-fluid {
+            max-width: 100%;
         }
 
         /* Stat cards */
@@ -536,7 +541,7 @@
             gap: 32px;
         }
         @media (min-width: 1024px) {
-            .detail-layout { grid-template-columns: 1fr 2fr; }
+            .detail-layout { grid-template-columns: 380px 1fr; }
         }
         .detail-col-left { display: flex; flex-direction: column; gap: 20px; }
         .detail-col-right { display: flex; flex-direction: column; gap: 20px; min-height: 500px; }
@@ -602,8 +607,6 @@
 
         .output-body {
             padding: 0;
-            max-height: 600px;
-            overflow: auto;
             position: relative;
         }
 
@@ -616,7 +619,7 @@
             line-height: 1.6;
         }
 
-        .output-body.collapsed { max-height: 200px; }
+        .output-body.collapsed { max-height: 200px; overflow: hidden; }
 
         /* Loading / empty states */
         .loading, .empty {

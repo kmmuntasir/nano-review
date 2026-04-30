@@ -17,15 +17,21 @@ function route() {
 
     updateNav(hash);
 
+    var container = document.querySelector(".container");
+
     if (hash === "#/" || hash === "" || hash === "#/dashboard") {
+        if (container) container.classList.remove("container-fluid");
         renderDashboard();
     } else if (hash === "#/reviews") {
+        if (container) container.classList.remove("container-fluid");
         renderReviewsPage();
     } else {
         var match = hash.match(/^#\/reviews\/(.+)$/);
         if (match) {
+            if (container) container.classList.add("container-fluid");
             renderReviewDetail(match[1]);
         } else {
+            if (container) container.classList.remove("container-fluid");
             renderDashboard();
         }
     }
