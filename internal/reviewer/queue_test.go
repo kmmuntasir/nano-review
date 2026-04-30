@@ -652,6 +652,291 @@ func TestQueue_Dedup_CancelledBroadcast(t *testing.T) {
 	}
 }
 
+// recordingStore captures UpdateReview calls for assertion.
+type recordingStore struct {
+	mu      sync.Mutex
+	records map[string]*storage.ReviewRecord // runID -> last recorded state
+}
+
+func newRecordingStore() *recordingStore {
+	return &recordingStore{records: make(map[string]*storage.ReviewRecord)}
+}
+
+func (s *recordingStore) CreateReview(_ context.Context, r storage.ReviewRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := r
+	s.records[r.RunID] = &cp
+	return nil
+}
+
+func (s *recordingStore) UpdateReview(_ context.Context, runID string, status storage.ReviewStatus, conclusion storage.ReviewConclusion, durationMs int64, attempts int, output string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[runID]
+	if !ok {
+		r = &storage.ReviewRecord{RunID: runID}
+		s.records[runID] = r
+	}
+	r.Status = status
+	r.Conclusion = conclusion
+	r.DurationMs = durationMs
+	r.Attempts = attempts
+	r.ClaudeOutput = output
+	now := time.Now()
+	r.CompletedAt = &now
+	return nil
+}
+
+func (s *recordingStore) GetReview(_ context.Context, runID string) (*storage.ReviewRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[runID]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+	cp := *r
+	return &cp, nil
+}
+
+func (s *recordingStore) ListReviews(_ context.Context, _ storage.ListFilter) ([]storage.ReviewRecord, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]storage.ReviewRecord, 0, len(s.records))
+	for _, r := range s.records {
+		out = append(out, *r)
+	}
+	return out, nil
+}
+
+func (s *recordingStore) GetMetrics(_ context.Context) (*storage.Metrics, error) { return nil, nil }
+func (s *recordingStore) FindActiveReview(_ context.Context, _ string, _ int) (*storage.ReviewRecord, error) {
+	return nil, storage.ErrNotFound
+}
+func (s *recordingStore) CleanupStaleReviews(_ context.Context) (int64, error) { return 0, nil }
+func (s *recordingStore) Close() error                                         { return nil }
+
+func (s *recordingStore) getRecord(runID string) *storage.ReviewRecord {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r, ok := s.records[runID]
+	if !ok {
+		return nil
+	}
+	cp := *r
+	return &cp
+}
+
+func newTestQueueWithStore(t *testing.T, maxConcurrent, maxQueueSize int, runner ClaudeRunner, store storage.ReviewStore, broadcaster Broadcaster) (*Queue, api.ReviewPayload) {
+	t.Helper()
+	repoDir := initGitRepo(t)
+	payload := api.ReviewPayload{
+		RepoURL:    "file://" + repoDir + "/.git",
+		PRNumber:   1,
+		BaseBranch: "main",
+		HeadBranch: "main",
+	}
+	w := NewWorker(
+		runner,
+		store,
+		&mockLogger{},
+		broadcaster,
+		"git", "claude", "", "", "pat",
+		10*time.Minute, 0, "", t.TempDir(),
+	)
+	q := NewQueue(w, store, maxConcurrent, maxQueueSize)
+	q.Start()
+	return q, payload
+}
+
+func TestQueue_Dedup_Cancelled_DBRecord(t *testing.T) {
+	runner := newBlockingRunner()
+	store := newRecordingStore()
+	q, payload := newTestQueueWithStore(t, 1, 10, runner, store, nil)
+	defer func() {
+		runner.unblock()
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	resB, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+	if resB.CancelledRunID != resA.RunID {
+		t.Fatalf("expected CancelledRunID=%q, got %q", resA.RunID, resB.CancelledRunID)
+	}
+
+	// A exits via ctx cancel, B starts and blocks. Release for B.
+	runner.unblock()
+	waitForIdle(t, q)
+
+	recA := store.getRecord(resA.RunID)
+	if recA == nil {
+		t.Fatal("no DB record for review A")
+	}
+	if recA.Status != storage.StatusCancelled {
+		t.Errorf("review A status: want %q, got %q", storage.StatusCancelled, recA.Status)
+	}
+	if recA.Conclusion != storage.ConclusionCancelled {
+		t.Errorf("review A conclusion: want %q, got %q", storage.ConclusionCancelled, recA.Conclusion)
+	}
+	if recA.CompletedAt == nil {
+		t.Error("review A CompletedAt: want non-nil, got nil")
+	}
+
+	recB := store.getRecord(resB.RunID)
+	if recB == nil {
+		t.Fatal("no DB record for review B")
+	}
+	if recB.Status != storage.StatusCompleted {
+		t.Errorf("review B status: want %q, got %q", storage.StatusCompleted, recB.Status)
+	}
+}
+
+func TestQueue_Dedup_Cancelled_BroadcastPayload(t *testing.T) {
+	runner := newBlockingRunner()
+	bc := &mockBroadcastRecorder{}
+	store := newRecordingStore()
+	q, payload := newTestQueueWithStore(t, 1, 10, runner, store, bc)
+	defer func() {
+		runner.unblock()
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	runner.waitReady()
+
+	_, err = q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+
+	waitForActive(t, q, 1)
+	runner.unblock()
+	waitForIdle(t, q)
+
+	var cancelledMsg map[string]any
+	for _, ev := range bc.getEvents() {
+		var msg map[string]any
+		if err := json.Unmarshal(ev.data, &msg); err != nil {
+			continue
+		}
+		if ev.topic == "run:"+resA.RunID && msg["type"] == "review_update" && msg["status"] == string(storage.StatusCancelled) {
+			cancelledMsg = msg
+			break
+		}
+	}
+	if cancelledMsg == nil {
+		t.Fatal("expected cancelled review_update broadcast for run A, none found")
+	}
+	if cancelledMsg["conclusion"] != string(storage.ConclusionCancelled) {
+		t.Errorf("broadcast conclusion: want %q, got %v", storage.ConclusionCancelled, cancelledMsg["conclusion"])
+	}
+	reviewField, ok := cancelledMsg["review"]
+	if !ok {
+		t.Fatal("broadcast missing 'review' field")
+	}
+	reviewMap, ok := reviewField.(map[string]any)
+	if !ok {
+		t.Fatalf("broadcast 'review' field: want map, got %T", reviewField)
+	}
+	if reviewMap["status"] != string(storage.StatusCancelled) {
+		t.Errorf("broadcast review.status: want %q, got %v", storage.StatusCancelled, reviewMap["status"])
+	}
+}
+
+func TestQueue_Dedup_DuringClone_DBRecord(t *testing.T) {
+	// Verifies Task 2's fix: when dedup cancels a review, the DB record
+	// always shows StatusCancelled (never StatusFailed), because recordResult
+	// now uses context.Background() for persistence.
+	runner := newBlockingRunner()
+	store := newRecordingStore()
+	q, payload := newTestQueueWithStore(t, 1, 10, runner, store, nil)
+	defer func() {
+		runner.unblock()
+		q.Stop()
+	}()
+
+	resA, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit A failed: %v", err)
+	}
+	waitForActive(t, q, 1)
+
+	// Cancel A via dedup with the same (repo, prNumber).
+	_, err = q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit B failed: %v", err)
+	}
+
+	runner.unblock()
+	waitForIdle(t, q)
+
+	recA := store.getRecord(resA.RunID)
+	if recA == nil {
+		t.Fatal("no DB record for review A")
+	}
+	if recA.Status != storage.StatusCancelled {
+		t.Errorf("review A status: want %q (not StatusFailed), got %q", storage.StatusCancelled, recA.Status)
+	}
+}
+
+func TestQueue_Timeout_DBRecord(t *testing.T) {
+	runner := newBlockingRunner()
+	store := newRecordingStore()
+	bc := &mockBroadcastRecorder{}
+	repoDir := initGitRepo(t)
+	payload := api.ReviewPayload{
+		RepoURL:    "file://" + repoDir + "/.git",
+		PRNumber:   1,
+		BaseBranch: "main",
+		HeadBranch: "main",
+	}
+
+	// Use a very short max duration so the review times out while the runner blocks.
+	w := NewWorker(
+		runner,
+		store,
+		&mockLogger{},
+		bc,
+		"git", "claude", "", "", "pat",
+		100*time.Millisecond, 0, "", t.TempDir(),
+	)
+	q := NewQueue(w, store, 1, 10)
+	q.Start()
+	defer func() {
+		runner.unblock()
+		q.Stop()
+	}()
+
+	res, err := q.StartReview(context.Background(), payload)
+	if err != nil {
+		t.Fatalf("submit failed: %v", err)
+	}
+
+	waitForIdle(t, q)
+
+	rec := store.getRecord(res.RunID)
+	if rec == nil {
+		t.Fatal("no DB record for timed-out review")
+	}
+	if rec.Status != storage.StatusTimedOut {
+		t.Errorf("status: want %q, got %q", storage.StatusTimedOut, rec.Status)
+	}
+	if rec.Conclusion != storage.ConclusionTimedOut {
+		t.Errorf("conclusion: want %q, got %q", storage.ConclusionTimedOut, rec.Conclusion)
+	}
+}
+
 func TestQueue_Dedup_StatsConsistent(t *testing.T) {
 	runner := newBlockingRunner()
 	q, payload := newTestQueue(t, 1, 10, runner)
