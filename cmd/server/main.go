@@ -222,6 +222,26 @@ func resolveReviewOutputDir() string {
 	return "/app/logs/reviews"
 }
 
+// resolveSkillsDir returns the directory containing Claude Code skill definitions.
+// Checks CLAUDE_SKILLS_DIR env var first, then falls back to user home, then
+// project-relative config/.claude/skills.
+func resolveSkillsDir() string {
+	if dir := os.Getenv("CLAUDE_SKILLS_DIR"); dir != "" {
+		return dir
+	}
+	homeDir := "/home/appuser/.claude/skills"
+	if _, err := os.Stat(homeDir); err == nil {
+		return homeDir
+	}
+	// Project-relative fallback (works in Docker and native)
+	localDir := "config/.claude/skills"
+	if _, err := os.Stat(localDir); err == nil {
+		abs, _ := filepath.Abs(localDir)
+		return abs
+	}
+	return homeDir
+}
+
 func main() {
 	for _, env := range []string{"WEBHOOK_SECRET", "GITHUB_PAT"} {
 		if os.Getenv(env) == "" {
@@ -352,11 +372,10 @@ func main() {
 		}
 	}
 
-	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries, resolveReviewOutputDir())
+	worker := reviewer.NewWorker(&claudeCLI{env: claudeConfig}, store, logger, hub, "git", claudePath, model, mcpConfigPath, githubPat, maxReviewDuration, maxRetries, resolveSkillsDir(), resolveReviewOutputDir())
 
 	queue := reviewer.NewQueue(worker, store, maxConcurrent, maxQueueSize)
 	queue.Start()
-	defer queue.Stop()
 
 	slog.Info("review queue started",
 		"max_concurrent", maxConcurrent,

@@ -58,6 +58,7 @@ type Worker struct {
 	githubPat         string
 	maxReviewDuration time.Duration
 	maxRetries        int
+	skillsDir         string
 	streamPaths       sync.Map // runID (string) -> .stream.json absolute path (string)
 	reviewOutputDir   string
 }
@@ -65,7 +66,7 @@ type Worker struct {
 // NewWorker creates a new review Worker with the given dependencies.
 // If store is nil, review records are not persisted (useful for testing).
 // If broadcaster is nil, no WebSocket events are sent.
-func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, broadcaster Broadcaster, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int, reviewOutputDir string) *Worker {
+func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, broadcaster Broadcaster, gitPath, claudePath, model, mcpConfigPath string, githubPat string, maxReviewDuration time.Duration, maxRetries int, skillsDir string, reviewOutputDir string) *Worker {
 	if maxReviewDuration <= 0 {
 		maxReviewDuration = DefaultMaxReviewDuration
 	}
@@ -87,6 +88,7 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, br
 		githubPat:         githubPat,
 		maxReviewDuration: maxReviewDuration,
 		maxRetries:        maxRetries,
+		skillsDir:         skillsDir,
 		reviewOutputDir:   reviewOutputDir,
 	}
 }
@@ -164,6 +166,18 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 		return
 	}
 	logger.Info("git clone completed")
+
+	// Install skills into the temp working directory so Claude Code discovers them.
+	// Claude discovers skills from <cwd>/.claude/skills/, not from ~/.claude/skills/.
+	if w.skillsDir != "" {
+		if err := w.installSkills(dir); err != nil {
+			logger.Error("failed to install skills", "error", err)
+		} else {
+			logger.Info("skills installed", "source", w.skillsDir, "dest", filepath.Join(dir, ".claude", "skills"))
+		}
+	} else {
+		logger.Info("no skills directory configured, skill commands will not be available")
+	}
 
 	// Update to running
 	w.recordResult(ctx, runID, startTime, storage.StatusRunning, "", 0, 0, "")
@@ -398,6 +412,26 @@ func (w *Worker) cloneRepo(ctx context.Context, p api.ReviewPayload, dir string)
 		return fmt.Errorf("git clone %s into %s: %w (output: %s)", sanitizeURL(cloneURL), dir, err, string(out))
 	}
 
+	return nil
+}
+
+// installSkills copies the skill definitions from the configured skills directory
+// into the temp working directory so Claude Code discovers them via <cwd>/.claude/skills/.
+func (w *Worker) installSkills(workDir string) error {
+	entries, err := os.ReadDir(w.skillsDir)
+	if err != nil {
+		return fmt.Errorf("read skills dir %s: %w", w.skillsDir, err)
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		src := filepath.Join(w.skillsDir, entry.Name())
+		dst := filepath.Join(workDir, ".claude", "skills", entry.Name())
+		if err := os.CopyFS(dst, os.DirFS(src)); err != nil {
+			return fmt.Errorf("copy skill %s: %w", entry.Name(), err)
+		}
+	}
 	return nil
 }
 

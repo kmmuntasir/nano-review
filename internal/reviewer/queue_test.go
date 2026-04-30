@@ -158,7 +158,7 @@ func newTestQueue(t *testing.T, maxConcurrent, maxQueueSize int, runner ClaudeRu
 		&mockLogger{},
 		nil,
 		"git", "claude", "", "", "pat",
-		10*time.Minute, 0, t.TempDir(),
+		10*time.Minute, 0, "", t.TempDir(),
 	)
 	q := NewQueue(w, &mockQueueStore{}, maxConcurrent, maxQueueSize)
 	q.Start()
@@ -180,7 +180,7 @@ func newTestQueueWithBroadcaster(t *testing.T, maxConcurrent, maxQueueSize int, 
 		&mockLogger{},
 		broadcaster,
 		"git", "claude", "", "", "pat",
-		10*time.Minute, 0, t.TempDir(),
+		10*time.Minute, 0, "", t.TempDir(),
 	)
 	q := NewQueue(w, &mockQueueStore{}, maxConcurrent, maxQueueSize)
 	q.Start()
