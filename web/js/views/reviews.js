@@ -48,10 +48,10 @@ function fetchReviewsForPage(callback) {
 function renderReviewsPageContent() {
     var html = '<div class="table-wrap">' +
         '<div class="table-header">' +
-        '<h2>Reviews</h2>' +
+        '<h2>Refined Review History List</h2>' +
         '<div class="filters">' +
         '<select id="status-filter" onchange="window.__applyFilter()">' +
-        '<option value="">All statuses</option>' +
+        '<option value="">Status</option>' +
         '<option value="pending"' + (reviewsPageState.status === "pending" ? " selected" : "") + '>Pending</option>' +
         '<option value="queued"' + (reviewsPageState.status === "queued" ? " selected" : "") + '>Queued</option>' +
         '<option value="running"' + (reviewsPageState.status === "running" ? " selected" : "") + '>Running</option>' +
@@ -60,8 +60,8 @@ function renderReviewsPageContent() {
         '<option value="timed_out"' + (reviewsPageState.status === "timed_out" ? " selected" : "") + '>Timed out</option>' +
         '<option value="cancelled"' + (reviewsPageState.status === "cancelled" ? " selected" : "") + '>Cancelled</option>' +
         '</select>' +
-        '<input type="text" id="repo-filter" placeholder="Filter by repo..." value="' + esc(reviewsPageState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
-        '<button class="btn" onclick="window.__applyFilter()">Filter</button>' +
+        '<input type="text" id="repo-filter" placeholder="Repos..." value="' + esc(reviewsPageState.repo) + '" onkeydown="if(event.key===\'Enter\')window.__applyFilter()">' +
+        '<button class="btn btn-primary" onclick="window.__applyFilter()"><i class="ph ph-faders"></i> Filter</button>' +
         '</div></div>';
 
     if (reviewsPageState.loading && reviewsPageState.reviews.length === 0) {
@@ -69,14 +69,14 @@ function renderReviewsPageContent() {
     } else if (reviewsPageState.reviews.length === 0) {
         html += '<div class="empty">No reviews found</div>';
     } else {
-        html += '<table><thead><tr>' +
+        html += '<div style="overflow-x:auto;"><table><thead><tr>' +
             '<th>Repo</th><th>PR</th><th>Branch</th><th>Status</th><th>Duration</th><th>Created</th><th></th>' +
             '</tr></thead><tbody id="reviews-table-body">';
         reviewsPageState.reviews.forEach(function(r) {
             html += reviewRow(r);
         });
-        html += '</tbody></table>';
-        html += '<div class="load-more-wrap"><button class="btn" onclick="window.__loadMore()">Load more</button></div>';
+        html += '</tbody></table></div>';
+        html += '<div class="load-more-wrap"><button class="btn" onclick="window.__loadMore()">Load More</button></div>';
     }
 
     html += '</div>';
@@ -91,7 +91,7 @@ function reviewRow(r) {
         : esc(basename(r.repo));
     var prCell = link
         ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="pr-link">#' + (r.pr_number || '-') + '</a>'
-        : (r.pr_number || '-');
+        : '<span>#' + (r.pr_number || '-') + '</span>';
 
     var branchCell = '-';
     if (r.head_branch || r.base_branch) {
@@ -100,23 +100,17 @@ function reviewRow(r) {
         branchCell = '<span class="branch-display"><span class="branch-head">' + head + '</span><span class="branch-arrow">→</span><span class="branch-base">' + base + '</span></span>';
     }
 
-    var conclusionDot = '';
-    if (r.conclusion === 'success') {
-        conclusionDot = '<span class="conclusion-dot conclusion-dot--success" title="success"></span>';
-    } else if (r.conclusion === 'failure' || r.conclusion === 'error') {
-        conclusionDot = '<span class="conclusion-dot conclusion-dot--failure" title="failed"></span>';
-    }
-
     var timeCell = '<span class="time-ago" title="' + esc(formatDate(r.created_at)) + '">' + esc(timeAgo(r.created_at)) + '</span>';
+    var pulseHtml = r.status === 'running' ? '<div style="display:flex;gap:2px;margin-right:6px;"><div class="stream-block__status-dot"></div><div class="stream-block__status-dot" style="animation-delay:0.2s"></div><div class="stream-block__status-dot" style="animation-delay:0.4s"></div></div>' : '';
 
     return '<tr>' +
-        '<td>' + repoCell + '</td>' +
+        '<td><div style="display:flex;align-items:center;gap:6px;"><i class="ph ph-github-logo"></i>' + repoCell + '</div></td>' +
         '<td>' + prCell + '</td>' +
         '<td>' + branchCell + '</td>' +
-        '<td>' + conclusionDot + '<span class="' + badgeClass(r.status) + '">' + esc(r.status) + '</span></td>' +
-        '<td>' + formatDuration(r.duration_ms) + '</td>' +
+        '<td><span class="' + badgeClass(r.status) + '">' + pulseHtml + esc(r.status) + '</span></td>' +
+        '<td style="color:var(--text-secondary);">' + formatDuration(r.duration_ms) + '</td>' +
         '<td>' + timeCell + '</td>' +
-        '<td><a href="#/reviews/' + r.run_id + '" class="view-link">View</a></td>' +
+        '<td style="text-align:right;"><a href="#/reviews/' + r.run_id + '" class="view-link"><i class="ph ph-arrow-right text-lg"></i></a></td>' +
         '</tr>';
 }
 

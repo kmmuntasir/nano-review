@@ -4,6 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Nano Review</title>
+    
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <link rel="stylesheet" href="/app.css">
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/core.min.js"></script>
@@ -17,15 +29,24 @@
     <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/lib/languages/plaintext.min.js"></script>
 </head>
 <body>
-    <nav>
-        <a href="#/dashboard" class="brand">Nano Review</a>
-        <div class="links">
-            <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
-            <a href="#/reviews" data-nav="reviews">Reviews</a>
+    <header class="app-header">
+        <div class="header-left">
+            <a href="#/dashboard" class="brand">
+                <i class="ph-fill ph-hexagon text-brand"></i>
+                <span>Nano Review</span>
+            </a>
+            <nav class="links">
+                <a href="#/dashboard" data-nav="dashboard">Dashboard</a>
+                <a href="#/reviews" data-nav="reviews">Reviews</a>
+            </nav>
         </div>
-        <div class="auth-nav" id="auth-nav"></div>
-        <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode"></button>
-    </nav>
+        <div class="header-right">
+            <div class="auth-nav" id="auth-nav"></div>
+            <button class="theme-toggle" id="theme-toggle" aria-label="Toggle dark mode" title="Toggle dark mode">
+                <i class="ph ph-sun"></i>
+            </button>
+        </div>
+    </header>
     <div class="container"><div id="app"></div></div>
     <script type="module" src="/js/main.js"></script>
 </body>
