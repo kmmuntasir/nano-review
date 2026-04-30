@@ -154,8 +154,8 @@ function setupReviewsPageWebSocketHandlers() {
             }
             return;
         }
-        if (repoFilter && basename(reviewData.repo).toLowerCase().indexOf(repoFilter.toLowerCase()) === -1) {
-            return; // Doesn't match repo filter — ignore entirely
+        if (repoFilter && reviewData.repo.toLowerCase().indexOf(repoFilter.toLowerCase()) === -1) {
+            return;
         }
 
         // Update existing or prepend new

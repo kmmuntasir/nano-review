@@ -165,6 +165,24 @@ func TestListReviews_FilterByRepo(t *testing.T) {
 	if len(records) != 2 {
 		t.Errorf("len(records) = %d, want 2", len(records))
 	}
+
+	// Substring match — partial repo name should still work.
+	records, err = store.ListReviews(ctx, ListFilter{Repo: "a.git"})
+	if err != nil {
+		t.Fatalf("ListReviews failed: %v", err)
+	}
+	if len(records) != 2 {
+		t.Errorf("substring filter: len(records) = %d, want 2", len(records))
+	}
+
+	// No match.
+	records, err = store.ListReviews(ctx, ListFilter{Repo: "no-such-repo"})
+	if err != nil {
+		t.Fatalf("ListReviews failed: %v", err)
+	}
+	if len(records) != 0 {
+		t.Errorf("no match: len(records) = %d, want 0", len(records))
+	}
 }
 
 func TestListReviews_FilterByStatus(t *testing.T) {
