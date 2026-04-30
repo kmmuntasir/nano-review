@@ -11,14 +11,14 @@ MUST use GitHub MCP server tools. No text-only output — call tools.
 
 ## Repository Location
 
-Repo cloned into working directory subdirectory. Extract repo path from prompt (ends with "The repo is cloned at ./<repo-name>/"). Use for all local file ops.
+Repo path provided in prompt (e.g., "The repo is cloned at /tmp/nano-review-abc123/repo-name/"). This is the **absolute path** to the repo. Use for all local file ops.
 
-**Important:** CWD ≠ repo root. Always prefix paths with repo subdirectory.
+**Important:** Always `cd` to the absolute repo path from the prompt before any git operation. CWD may not be the repo root.
 
 ### File Access
-- **Read** tool: `./repo-name/path/to/file`
-- **Glob** tool: `./repo-name/**/*.go`
-- **Grep** tool: `./repo-name/` as path
+- **Read** tool: `/tmp/nano-review-*/repo-name/path/to/file` (absolute path from prompt)
+- **Glob** tool: `/tmp/nano-review-*/repo-name/**/*.go`
+- **Grep** tool: `/tmp/nano-review-*/repo-name/` as path
 
 ### Project Context
 Before diff analysis, read from repo subdirectory (skip missing):
@@ -31,11 +31,11 @@ Before diff analysis, read from repo subdirectory (skip missing):
 Context = project-specific conventions for review.
 
 ### Git Commands
-Run git commands from repo subdirectory:
+Run git commands after `cd` to absolute repo path from prompt:
 ```bash
-cd ./repo-name && git log --oneline -10
+cd /tmp/nano-review-*/repo-name && git log --oneline -10
 ```
-Do NOT run git commands without `cd ./repo-name` — CWD is not a git repo.
+Always use the absolute path from the prompt for `cd`. CWD may be unpredictable between commands.
 
 ## Mandatory Steps (call in order)
 
@@ -50,21 +50,21 @@ All diff analysis, file content checks, code review = local (git commands, files
    - **Fails** (tool unavailable, auth error, 404, any error)? **STOP.** No further steps. Respond: GitHub MCP not connected, no repo access, review cannot proceed. Include error received.
    - **Succeeds** → step 2.
 
-2. **Checkout branches locally**:
+2. **Fetch base branch**:
    - Extract base and head branch from prompt.
+   - Head branch is already cloned and checked out (single-branch clone). Only base needs fetching.
    - Bash:
      ```bash
-     cd ./repo-name && git fetch origin base-branch:base-branch head-branch:head-branch
-     cd ./repo-name && git checkout base-branch
-     cd ./repo-name && git checkout head-branch
+     cd /absolute/repo/path && git fetch origin base-branch:base-branch
      ```
+   - Do NOT checkout branches. Do NOT fetch the head branch. Both cause errors with checked-out refs.
 
 3. **Fetch diff LOCALLY via git** (NOT MCP):
    - Use Bash:
      ```bash
-     cd ./repo-name && git diff base-branch...head-branch
+     cd /absolute/repo/path && git diff base-branch...HEAD
      ```
-   Or `git diff base-branch...HEAD` if head checked out. Store for analysis. No MCP.
+   HEAD is always the checked-out branch (head branch from clone). Store for analysis. No MCP.
 
 4. **Analyze complete diff locally** for:
    - **Correctness**: logic errors, off-by-one, unhandled edge cases

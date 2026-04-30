@@ -170,7 +170,7 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 
 	logger.Info("claude execution started")
 
-	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s). The repo is cloned at ./%s/", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch, repo)
+	prompt := fmt.Sprintf("/pr-review Review pull request #%d in %s/%s (base: %s, head: %s). The repo is cloned at %s/", p.PRNumber, owner, repo, p.BaseBranch, p.HeadBranch, repoDir)
 
 	args := []string{w.claudePath, "-p", prompt, "--dangerously-skip-permissions",
 		"--output-format", "stream-json", "--verbose", "--include-partial-messages"}
