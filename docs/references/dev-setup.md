@@ -16,6 +16,8 @@ Two development modes are available:
 - Go 1.23+
 - Git
 - Claude Code CLI (`claude`)
+- Node.js 24.x LTS (Caveman dependency)
+- jq (RTK hook dependency)
 
 ### Docker Development
 
@@ -34,6 +36,10 @@ cp .env.example .env
 make native-setup
 make native-run
 ```
+
+> `make native-setup` also installs Caveman plugin and RTK (Rust Token Killer).
+> Caveman provides terse communication mode for PR reviews. RTK optimizes CLI output tokens.
+> Both configure hooks in `~/.claude/settings.json` automatically.
 
 Verify:
 
@@ -379,6 +385,10 @@ Returns current session user info as JSON.
 | Permission denied on `./bin/nano-review` | Run `chmod +x ./bin/nano-review` |
 | `database is locked` | Ensure only one process is running. Remove stale `./data/reviews.db-wal` and `./data/reviews.db-shm` files |
 | `.env` missing native variables | Run `make native-setup` again — it only appends missing keys |
+| `node: command not found` | Install Node.js 24.x or re-run `make native-setup` |
+| `rtk: command not found` | Re-run `make native-setup` or add `~/.local/bin` to `$PATH` |
+| Caveman hooks not loading | Check `~/.claude/settings.json` for hooks section. Re-run Caveman install script |
+| RTK hook conflicts with Caveman | Run `rtk init -g --auto-patch` — patches existing settings without overwrite |
 
 ### Docker Issues
 

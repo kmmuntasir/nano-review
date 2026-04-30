@@ -65,5 +65,59 @@ else
     echo "✅ Claude Code CLI is already installed."
 fi
 
+# 4. Check and install jq (required by RTK hooks)
+if ! command -v jq &> /dev/null; then
+    echo "❌ jq is missing. Attempting to install..."
+    install_system_package jq
+else
+    echo "✅ jq is already installed."
+fi
+
+# 5. Check and install Node.js (required by Caveman hooks)
+if ! command -v node &> /dev/null; then
+    echo "❌ Node.js is missing. Attempting to install..."
+    if command -v brew &> /dev/null; then
+        brew install node
+    elif command -v apt-get &> /dev/null; then
+        curl -fsSL https://deb.nodesource.com/setup_24.x | $SUDO_CMD bash -
+        $SUDO_CMD apt-get install -y nodejs
+    elif command -v dnf &> /dev/null; then
+        $SUDO_CMD dnf install -y nodejs
+    elif command -v pacman &> /dev/null; then
+        $SUDO_CMD pacman -S --noconfirm nodejs npm
+    else
+        echo "Error: Could not install Node.js. Install Node.js 24.x LTS manually."
+        exit 1
+    fi
+else
+    echo "✅ Node.js is already installed."
+fi
+
+# 6. Install Caveman plugin (merges hooks into ~/.claude/settings.json)
+echo "Installing Caveman plugin..."
+curl -fsSL https://raw.githubusercontent.com/JuliusBrussee/caveman/main/hooks/install.sh | bash
+echo "✅ Caveman plugin installed."
+
+# 7. Install RTK (Rust Token Killer)
+if ! command -v rtk &> /dev/null; then
+    echo "❌ RTK is missing. Installing..."
+    curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
+    # Ensure RTK is on PATH for current session
+    export PATH="$HOME/.local/bin:$PATH"
+else
+    echo "✅ RTK is already installed."
+fi
+
+# 8. Configure RTK hook (merges PreToolUse hook into ~/.claude/settings.json)
+echo "Configuring RTK hook..."
+rtk init -g --auto-patch
+
+# 9. Verify installations
+echo ""
+echo "Verifying Caveman + RTK..."
+node --version
+rtk --version
+echo "✅ Caveman + RTK verified."
+
 echo "-------------------------"
 echo "Setup complete! All dependencies are ready."

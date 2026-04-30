@@ -28,7 +28,10 @@ For native development, run `make native-setup` (or `./scripts/setup-native.sh`)
 
 ### Running Go Tooling (Native — Primary)
 
-Requires Go 1.23+ and Claude Code CLI installed locally. These commands run directly on the host:
+Requires Go 1.23+, Claude Code CLI, Node.js 24.x, and jq installed locally.
+`make native-setup` installs missing dependencies automatically.
+
+These commands run directly on the host:
 
 ```bash
 make native-setup        # First-time setup: dirs, .env defaults, build

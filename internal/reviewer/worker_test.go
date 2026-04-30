@@ -387,8 +387,8 @@ func TestProcessReview_CallsClaudeWithCorrectArgs(t *testing.T) {
 		t.Fatal("could not find prompt string in claude.Run args")
 	}
 
-	// Verify the prompt contains the subdirectory clone instruction
-	if !strings.Contains(prompt, "The repo is cloned at ./") {
+	// Verify the prompt contains the subdirectory clone instruction with absolute path
+	if !strings.Contains(prompt, "The repo is cloned at /") {
 		t.Errorf("prompt does not contain subdirectory clone instruction; prompt = %q", prompt)
 	}
 
@@ -476,9 +476,9 @@ func TestProcessReview_CloneIntoSubdirectory(t *testing.T) {
 		t.Fatal("could not find prompt string in claude.Run args")
 	}
 
-	// 3. Verify the prompt contains the repo subdirectory path (./source/)
-	if !strings.Contains(prompt, "./source/") {
-		t.Errorf("prompt should contain the repo subdirectory path ./source/; got: %q", prompt)
+	// 3. Verify the prompt contains the repo subdirectory with absolute path
+	if !strings.Contains(prompt, "/source/") {
+		t.Errorf("prompt should contain the repo subdirectory path /source/; got: %q", prompt)
 	}
 }
 
