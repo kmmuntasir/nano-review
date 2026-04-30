@@ -1,11 +1,62 @@
 #!/bin/bash
 
+# Prevent interactive prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
+
+# Add ~/.local/bin to PATH upfront (in case tools were installed previously)
+export PATH="$HOME/.local/bin:$PATH"
+
 # Determine if we need sudo
 SUDO_CMD=""
 if [ "$EUID" -ne 0 ]; then
     # Not running as root, we need sudo
     SUDO_CMD="sudo"
 fi
+
+# Pre-seed tzdata to prevent interactive prompt
+if command -v apt-get &> /dev/null; then
+    echo "tzdata tzdata/Areas select Etc" | $SUDO_CMD debconf-set-selections 2>/dev/null || true
+    echo "tzdata tzdata/Zones/Etc select UTC" | $SUDO_CMD debconf-set-selections 2>/dev/null || true
+fi
+
+_PKG_UPDATED=false
+
+pkg_update_once() {
+    if [ "$_PKG_UPDATED" = true ]; then
+        return 0
+    fi
+
+    if command -v apt-get &> /dev/null; then
+        echo "Updating apt package index..."
+        $SUDO_CMD apt-get update -qq
+    elif command -v dnf &> /dev/null; then
+        echo "Updating dnf package cache..."
+        $SUDO_CMD dnf makecache -y --quiet 2>/dev/null || true
+    fi
+
+    _PKG_UPDATED=true
+}
+
+ensure_local_bin_in_path() {
+    local bin_dir="$HOME/.local/bin"
+
+    # Add to current session
+    export PATH="$bin_dir:$PATH"
+
+    # Persist to shell profile (idempotent)
+    local profile_file=""
+    if [ -f "$HOME/.bashrc" ]; then
+        profile_file="$HOME/.bashrc"
+    elif [ -f "$HOME/.zshrc" ]; then
+        profile_file="$HOME/.zshrc"
+    fi
+
+    if [ -n "$profile_file" ] && ! grep -qF '.local/bin' "$profile_file"; then
+        echo "" >> "$profile_file"
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$profile_file"
+        echo "Added ~/.local/bin to $profile_file"
+    fi
+}
 
 # Function to detect the package manager and install a standard package
 install_system_package() {
@@ -18,7 +69,7 @@ install_system_package() {
 
     if command -v apt-get &> /dev/null; then
         echo "Detected apt. Installing $PACKAGE..."
-        $SUDO_CMD apt-get update
+        pkg_update_once
         $SUDO_CMD apt-get install -y "$PACKAGE"
     elif command -v brew &> /dev/null; then
         echo "Detected Homebrew. Installing $PACKAGE..."
@@ -59,8 +110,8 @@ fi
 # 3. Check and install Claude Code CLI
 if ! command -v claude &> /dev/null; then
     echo "❌ Claude Code CLI is missing. Installing the latest native version..."
-    # Anthropic's official native installation command for macOS and Linux/WSL
-    curl -fsSL https://claude.ai/install.sh | bash
+    CI=1 curl -fsSL https://claude.ai/install.sh | bash
+    ensure_local_bin_in_path
 else
     echo "✅ Claude Code CLI is already installed."
 fi
@@ -102,15 +153,14 @@ echo "✅ Caveman plugin installed."
 if ! command -v rtk &> /dev/null; then
     echo "❌ RTK is missing. Installing..."
     curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh | sh
-    # Ensure RTK is on PATH for current session
-    export PATH="$HOME/.local/bin:$PATH"
+    ensure_local_bin_in_path
 else
     echo "✅ RTK is already installed."
 fi
 
 # 8. Configure RTK hook (merges PreToolUse hook into ~/.claude/settings.json)
 echo "Configuring RTK hook..."
-rtk init -g --auto-patch
+echo "y" | rtk init -g --auto-patch
 
 # 9. Verify installations
 echo ""
@@ -121,3 +171,10 @@ echo "✅ Caveman + RTK verified."
 
 echo "-------------------------"
 echo "Setup complete! All dependencies are ready."
+
+# Source profile so PATH changes take effect in the calling shell
+if [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc" 2>/dev/null || true
+elif [ -f "$HOME/.zshrc" ]; then
+    source "$HOME/.zshrc" 2>/dev/null || true
+fi
