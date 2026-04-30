@@ -290,9 +290,10 @@ func (w *Worker) processReview(ctx context.Context, runID string, p api.ReviewPa
 
 // recordResult updates the review record in storage. No-op if store is nil.
 // Storage errors are logged but never abort the review.
-func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.Time, status storage.ReviewStatus, conclusion storage.ReviewConclusion, durationMs int64, attempts int, output string) {
+func (w *Worker) recordResult(_ context.Context, runID string, startTime time.Time, status storage.ReviewStatus, conclusion storage.ReviewConclusion, durationMs int64, attempts int, output string) {
+	bgCtx := context.Background()
 	if w.store != nil {
-		if err := w.store.UpdateReview(ctx, runID, status, conclusion, durationMs, attempts, output); err != nil {
+		if err := w.store.UpdateReview(bgCtx, runID, status, conclusion, durationMs, attempts, output); err != nil {
 			w.logger.Error("failed to update review record",
 				"run_id", runID,
 				"status", status,
@@ -300,7 +301,7 @@ func (w *Worker) recordResult(ctx context.Context, runID string, startTime time.
 			)
 		}
 	}
-	w.broadcastReviewUpdate(ctx, runID, status, string(conclusion), durationMs)
+	w.broadcastReviewUpdate(bgCtx, runID, status, string(conclusion), durationMs)
 }
 
 // broadcastReviewUpdate sends a review_update event to all WebSocket subscribers.
