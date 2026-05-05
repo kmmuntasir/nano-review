@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -485,9 +484,4 @@ func TestOpen_NanoDataDir(t *testing.T) {
 	if _, err := os.Stat(dbFile); err != nil {
 		t.Errorf("expected database file at %s: %v", dbFile, err)
 	}
-}
-
-func isPermissionOrPathError(err error) bool {
-	s := err.Error()
-	return strings.Contains(s, "permission") || strings.Contains(s, "mkdir") || strings.Contains(s, "no such file") || strings.Contains(s, "access denied")
 }
