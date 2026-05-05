@@ -3,6 +3,12 @@
 # Prevent interactive prompts during package installation
 export DEBIAN_FRONTEND=noninteractive
 
+# Parse --env-file argument (default: .env)
+ENV_FILE=".env"
+if [[ "${1:-}" == "--env-file" && -n "${2:-}" ]]; then
+    ENV_FILE="$2"
+fi
+
 # Determine if we need sudo
 SUDO_CMD=""
 if [ "$EUID" -ne 0 ]; then
@@ -95,6 +101,8 @@ run_as_appuser() {
 }
 
 echo "Starting system checks..."
+echo "-------------------------"
+echo "Environment file: $ENV_FILE"
 echo "-------------------------"
 
 # 1. Create appuser (same user as Docker) for Claude Code compatibility.
@@ -217,36 +225,36 @@ if id -u appuser &>/dev/null; then
 fi
 echo "✅ Data and logs directories created."
 
-# 12. Generate .env if missing
-if [[ ! -f .env ]]; then
-    echo "Generating .env with native defaults..."
-    cp .env.example .env
+# 12. Generate env file if missing
+if [[ ! -f "$ENV_FILE" ]]; then
+    echo "Generating $ENV_FILE with native defaults..."
+    cp .env.example "$ENV_FILE"
     # Ensure CLAUDE_CODE_PATH points to appuser's Claude binary
-    if grep -q '^CLAUDE_CODE_PATH=' .env; then
-        sed -i 's|^CLAUDE_CODE_PATH=.*|CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude|' .env
+    if grep -q '^CLAUDE_CODE_PATH=' "$ENV_FILE"; then
+        sed -i 's|^CLAUDE_CODE_PATH=.*|CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude|' "$ENV_FILE"
     else
-        echo "CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude" >> .env
+        echo "CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude" >> "$ENV_FILE"
     fi
     # Set native paths
-    if grep -q '^# NANO_DATA_DIR=' .env; then
-        sed -i 's|^# NANO_DATA_DIR=.*|NANO_DATA_DIR=./data|' .env
+    if grep -q '^# NANO_DATA_DIR=' "$ENV_FILE"; then
+        sed -i 's|^# NANO_DATA_DIR=.*|NANO_DATA_DIR=./data|' "$ENV_FILE"
     fi
-    if grep -q '^# NANO_LOG_DIR=' .env; then
-        sed -i 's|^# NANO_LOG_DIR=.*|NANO_LOG_DIR=./logs|' .env
+    if grep -q '^# NANO_LOG_DIR=' "$ENV_FILE"; then
+        sed -i 's|^# NANO_LOG_DIR=.*|NANO_LOG_DIR=./logs|' "$ENV_FILE"
     fi
-    if grep -q '^# DATABASE_PATH=' .env; then
-        sed -i 's|^# DATABASE_PATH=.*|DATABASE_PATH=./data/reviews.db|' .env
+    if grep -q '^# DATABASE_PATH=' "$ENV_FILE"; then
+        sed -i 's|^# DATABASE_PATH=.*|DATABASE_PATH=./data/reviews.db|' "$ENV_FILE"
     fi
-    echo "✅ .env generated. Edit .env to set WEBHOOK_SECRET, ANTHROPIC_AUTH_TOKEN, GITHUB_PAT."
+    echo "✅ $ENV_FILE generated. Edit $ENV_FILE to set WEBHOOK_SECRET, ANTHROPIC_AUTH_TOKEN, GITHUB_PAT."
 else
-    # Ensure CLAUDE_CODE_PATH is set correctly even if .env exists
-    if ! grep -q '^CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude' .env; then
-        if grep -q '^CLAUDE_CODE_PATH=' .env; then
-            sed -i 's|^CLAUDE_CODE_PATH=.*|CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude|' .env
+    # Ensure CLAUDE_CODE_PATH is set correctly even if env file exists
+    if ! grep -q '^CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude' "$ENV_FILE"; then
+        if grep -q '^CLAUDE_CODE_PATH=' "$ENV_FILE"; then
+            sed -i 's|^CLAUDE_CODE_PATH=.*|CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude|' "$ENV_FILE"
         else
-            echo "CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude" >> .env
+            echo "CLAUDE_CODE_PATH=/home/appuser/.local/bin/claude" >> "$ENV_FILE"
         fi
-        echo "✅ CLAUDE_CODE_PATH updated in .env."
+        echo "✅ CLAUDE_CODE_PATH updated in $ENV_FILE."
     fi
 fi
 
@@ -256,7 +264,8 @@ go build -o ./bin/nano-review ./cmd/server
 echo "✅ Binary built to ./bin/nano-review."
 
 echo "-------------------------"
-echo "Setup complete! Run 'make native-run' to start."
+echo "Setup complete! Environment file: $ENV_FILE"
+echo "Edit $ENV_FILE with your secrets, then run the appropriate make target."
 
 # Source profile so PATH changes take effect in the calling shell
 if [ -f "$HOME/.bashrc" ]; then

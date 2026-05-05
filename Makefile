@@ -3,6 +3,8 @@
        prod prod-logs prod-down prod-restart prod-build \
        test lint fmt \
        native-setup native-build native-run native-dev native-clean native-test native-test-cover native-lint \
+       native-setup-prod native-run-prod native-install-prod \
+       native-setup-stage native-run-stage native-install-stage \
        clean help
 
 # ---------------------------------------------------------------------------
@@ -121,6 +123,30 @@ native-lint: ## Lint natively
 	go fmt ./...
 
 # ---------------------------------------------------------------------------
+# Native production (no Docker)
+# ---------------------------------------------------------------------------
+native-setup-prod: ## First-time native prod setup (generates .env.prod)
+	@bash scripts/setup-native-prod.sh
+
+native-run-prod: native-build ## Build and run natively with .env.prod
+	@bash scripts/run-native-prod.sh
+
+native-install-prod: native-build ## Install systemd service for production
+	@bash scripts/install-systemd-prod.sh
+
+# ---------------------------------------------------------------------------
+# Native staging (no Docker)
+# ---------------------------------------------------------------------------
+native-setup-stage: ## First-time native staging setup (generates .env.stage)
+	@bash scripts/setup-native-stage.sh
+
+native-run-stage: native-build ## Build and run natively with .env.stage
+	@bash scripts/run-native-stage.sh
+
+native-install-stage: native-build ## Install systemd service for staging
+	@bash scripts/install-systemd-stage.sh
+
+# ---------------------------------------------------------------------------
 # Utilities
 # ---------------------------------------------------------------------------
 clean:
@@ -169,6 +195,16 @@ help: ## Show this help
 	@echo "    native-test     Run tests natively"
 	@echo "    native-test-cover  Run tests with coverage natively"
 	@echo "    native-lint     Lint natively"
+	@echo ""
+	@echo "  Native production:"
+	@echo "    native-setup-prod    First-time native prod setup (.env.prod)"
+	@echo "    native-run-prod      Build and run with .env.prod"
+	@echo "    native-install-prod  Install systemd service for production"
+	@echo ""
+	@echo "  Native staging:"
+	@echo "    native-setup-stage   First-time native staging setup (.env.stage)"
+	@echo "    native-run-stage     Build and run with .env.stage"
+	@echo "    native-install-stage Install systemd service for staging"
 	@echo ""
 	@echo "  Utilities:"
 	@echo "    clean           Remove containers, volumes, and local images"

@@ -69,11 +69,25 @@ Nano Review is a lightweight Go microbackend that automates pull request code re
 
 ## Quick Start
 
+### Docker
+
 ```bash
 git clone https://github.com/kmmuntasir/nano-review.git
 cd nano-review
 cp .env.example .env   # then edit .env with your secrets
 docker compose up --build
+```
+
+### Native (No Docker)
+
+Requires Go 1.23+, Node.js 24.x, and Claude Code CLI installed locally.
+
+```bash
+git clone https://github.com/kmmuntasir/nano-review.git
+cd nano-review
+make native-setup      # installs deps, generates .env, builds binary
+nano .env              # fill in your secrets
+make native-run        # build and run
 ```
 
 The server starts on `http://localhost:8080`. See [Configuration](#configuration) for required environment variables.
@@ -186,6 +200,8 @@ All configuration via environment variables. Copy [`.env.example`](.env.example)
 
 ## Development
 
+### Docker
+
 ```bash
 make dev          # Build and run (foreground)
 make test         # Run tests with race detector
@@ -197,6 +213,51 @@ make help         # Show all available targets
 ```
 
 > Go tooling runs inside Docker. Use `make` targets or `docker compose run --rm nano-review go <cmd>`.
+
+### Native
+
+```bash
+make native-setup       # First-time: deps, .env, build
+make native-run         # Build and run
+make native-dev         # Run with auto-rebuild (requires air)
+make native-test        # Run tests with race detector
+make native-lint        # Vet and format code
+```
+
+## Production Deployment (Native)
+
+For deploying directly on a VPS without Docker:
+
+```bash
+# 1. First-time setup
+make native-setup-prod        # installs deps, generates .env.prod, builds binary
+nano .env.prod                # fill in production secrets
+
+# 2. Install as systemd service (auto-restart, starts on boot)
+make native-install-prod
+
+# 3. Verify
+systemctl status nano-review
+journalctl -u nano-review -f  # follow logs
+```
+
+### Updating
+
+```bash
+git pull && make native-build && systemctl restart nano-review
+```
+
+### Staging
+
+Same flow with stage-specific targets:
+
+```bash
+make native-setup-stage       # generates .env.stage
+nano .env.stage               # fill in staging secrets
+make native-install-stage     # installs nano-review-stage.service
+```
+
+Run `make help` for the full list of targets.
 
 ## Project Structure
 

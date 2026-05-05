@@ -33,6 +33,8 @@ Thumbs.db
 # Environment
 .env
 .env.local
+.env.prod
+.env.stage
 
 # Application logs
 /app/logs/
