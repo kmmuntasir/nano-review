@@ -161,7 +161,7 @@ func TestConfigureClaudeMCP_ValidPAT(t *testing.T) {
 func TestResolveMCPConfigPath_Default(t *testing.T) {
 	t.Setenv("NANO_DATA_DIR", "")
 	got := resolveMCPConfigPath()
-	want := "/app/mcp-config.json"
+	want, _ := filepath.Abs(filepath.Join("data", "mcp-config.json"))
 	if got != want {
 		t.Errorf("resolveMCPConfigPath() = %q, want %q", got, want)
 	}
@@ -179,7 +179,7 @@ func TestResolveMCPConfigPath_CustomDir(t *testing.T) {
 func TestResolveLogPath_Default(t *testing.T) {
 	t.Setenv("NANO_LOG_DIR", "")
 	got := resolveLogPath("review.log")
-	want := filepath.Join("/app/logs", "review.log")
+	want := filepath.Join("logs", "review.log")
 	if got != want {
 		t.Errorf("resolveLogPath() = %q, want %q", got, want)
 	}
@@ -197,7 +197,7 @@ func TestResolveLogPath_CustomDir(t *testing.T) {
 func TestResolveReviewOutputDir_Default(t *testing.T) {
 	t.Setenv("NANO_LOG_DIR", "")
 	got := resolveReviewOutputDir()
-	want := "/app/logs/reviews"
+	want := filepath.Join("logs", "reviews")
 	if got != want {
 		t.Errorf("resolveReviewOutputDir() = %q, want %q", got, want)
 	}

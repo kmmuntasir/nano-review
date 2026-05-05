@@ -165,7 +165,7 @@ func resolveMCPConfigPath() string {
 	if dir := os.Getenv("NANO_DATA_DIR"); dir != "" {
 		p = filepath.Join(dir, "mcp-config.json")
 	} else {
-		p = "/app/mcp-config.json"
+		p = filepath.Join("data", "mcp-config.json")
 	}
 	abs, err := filepath.Abs(p)
 	if err != nil {
@@ -175,12 +175,12 @@ func resolveMCPConfigPath() string {
 }
 
 // resolveLogPath returns the full path for a log file.
-// Override with NANO_LOG_DIR, defaults to /app/logs/<filename>.
+// Override with NANO_LOG_DIR, defaults to ./logs/<filename>.
 func resolveLogPath(filename string) string {
 	if dir := os.Getenv("NANO_LOG_DIR"); dir != "" {
 		return filepath.Join(dir, filename)
 	}
-	return filepath.Join("/app/logs", filename)
+	return filepath.Join("logs", filename)
 }
 
 // configureClaudeMCP writes a dedicated MCP config file with the GitHub Copilot
@@ -222,12 +222,12 @@ func configureClaudeMCP(outputPath string) string {
 
 // resolveReviewOutputDir returns the directory for review output files.
 // If NANO_LOG_DIR is set, returns NANO_LOG_DIR/reviews; otherwise defaults
-// to /app/logs/reviews for backward compatibility.
+// to ./logs/reviews.
 func resolveReviewOutputDir() string {
 	if dir := os.Getenv("NANO_LOG_DIR"); dir != "" {
 		return filepath.Join(dir, "reviews")
 	}
-	return "/app/logs/reviews"
+	return filepath.Join("logs", "reviews")
 }
 
 // resolveSkillsDir returns the directory containing Claude Code skill definitions.

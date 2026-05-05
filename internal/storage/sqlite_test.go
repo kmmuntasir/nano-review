@@ -461,21 +461,12 @@ func TestOpen_CreatesDirectory(t *testing.T) {
 }
 
 func TestOpen_DefaultPath(t *testing.T) {
-	// Pass empty string — should use defaultDatabasePath().
-	// We can't actually write to /app/data in tests, so we just verify
-	// that it fails with the expected path-related error, not a parse error.
+	// Pass empty string — should use defaultDatabasePath() (./data/reviews.db).
 	store, err := Open("")
-	if store != nil {
-		_ = store.Close()
-	}
-	// Expected: either permission error (can't mkdir /app/data) or success
-	// Either way, no panic and no nil-pointer dereference.
 	if err != nil {
-		// Verify it's a directory creation error (expected in CI without /app/data)
-		if !isPermissionOrPathError(err) {
-			t.Fatalf("unexpected error type: %v", err)
-		}
+		t.Fatalf("Open with default path failed: %v", err)
 	}
+	_ = store.Close()
 }
 
 func TestOpen_NanoDataDir(t *testing.T) {

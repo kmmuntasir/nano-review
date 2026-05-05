@@ -71,7 +71,7 @@ func TestStreamAccumulator_MultipleWrites(t *testing.T) {
 }
 
 func TestStreamFilePath_Format(t *testing.T) {
-	const testDir = "/app/logs/reviews"
+	const testDir = "logs/reviews"
 	path := streamFilePath("12345678-1234-1234-1234-123456789012", api.ReviewPayload{
 		RepoURL:  "git@github.com:owner/repo.git",
 		PRNumber: 42,
@@ -96,7 +96,7 @@ func TestStreamFilePath_HTTPSURL(t *testing.T) {
 	path := streamFilePath("12345678-1234-1234-1234-123456789012", api.ReviewPayload{
 		RepoURL:  "https://github.com/owner/repo.git",
 		PRNumber: 1,
-	}, "/app/logs/reviews")
+	}, "logs/reviews")
 
 	if !strings.Contains(path, "repo_pr1_") {
 		t.Errorf("path should contain repo name and PR number, got: %s", path)

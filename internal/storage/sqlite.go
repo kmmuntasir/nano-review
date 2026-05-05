@@ -21,7 +21,7 @@ func defaultDatabasePath() string {
 	if dir := os.Getenv("NANO_DATA_DIR"); dir != "" {
 		return filepath.Join(dir, "reviews.db")
 	}
-	return "/app/data/reviews.db"
+	return filepath.Join("data", "reviews.db")
 }
 
 type sqliteStore struct {

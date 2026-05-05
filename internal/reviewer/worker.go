@@ -74,7 +74,7 @@ func NewWorker(claude ClaudeRunner, store storage.ReviewStore, logger Logger, br
 		maxRetries = 0
 	}
 	if reviewOutputDir == "" {
-		reviewOutputDir = "/app/logs/reviews"
+		reviewOutputDir = filepath.Join("logs", "reviews")
 	}
 	return &Worker{
 		claude:            claude,
