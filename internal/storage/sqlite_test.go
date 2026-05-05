@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -488,18 +489,5 @@ func TestOpen_NanoDataDir(t *testing.T) {
 
 func isPermissionOrPathError(err error) bool {
 	s := err.Error()
-	return contains(s, "permission") || contains(s, "mkdir") || contains(s, "no such file") || contains(s, "access denied")
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && searchString(s, substr)
-}
-
-func searchString(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
+	return strings.Contains(s, "permission") || strings.Contains(s, "mkdir") || strings.Contains(s, "no such file") || strings.Contains(s, "access denied")
 }
